@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediaDevices 测试页面</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            max-width: 900px;
+            margin: 30px auto;
+            padding: 20px;
+        }
+        button {
+            padding: 10px 25px;
+            margin: 10px 5px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #1976D2;
+        }
+        button:disabled {
+            background: #90CAF9;
+            cursor: not-allowed;
+        }
+        .section {
+            margin: 25px 0;
+            padding: 20px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        h2 {
+            color: #333;
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .device-list {
+            margin: 15px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            max-height: 800px;
+            overflow-y: auto;
+        }
+        .device-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #e9ecef;
+            margin-bottom: 5px;
+        }
+        .device-item:last-child {
+            border-bottom: none;
+        }
+        .device-type {
+            font-weight: bold;
+            color: #2196F3;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .info {
+            background: #e9ecef;
+            color: #383d41;
+        }
+        #preview {
+            width: 100%;
+            max-width: 640px;
+            height: 480px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #000;
+            display: none;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MediaDevices 测试工具</h1>
+        
+        <!-- 枚举设备按钮区域 -->
+        <div class="section">
+            <h2>1. 枚举媒体设备 (enumerateDevices)</h2>
+            <button id="enumerateDevicesBtn">获取所有媒体设备</button>
+            <div id="enumerateStatus" class="status info">状态：未获取设备列表</div>
+            <div class="device-list" id="deviceList">
+                点击上方按钮获取设备列表...
+            </div>
+        </div>
+
+        <!-- 获取媒体流按钮区域 -->
+        <div class="section">
+            <h2>2. 获取音视频流 (getUserMedia)</h2>
+            <button id="getAudioVideoBtn">获取摄像头+麦克风</button>
+            <button id="getAudioOnlyBtn">仅获取麦克风</button>
+            <button id="stopStreamBtn" disabled>停止流</button>
+            <div id="streamStatus" class="status info">状态：未获取媒体流</div>
+            <video id="preview" autoplay playsinline></video>
+        </div>
+        <div class="section">
+            <h2>3. 播放音频 (playAudio)</h2>
+            <audio id="audioPlayer" controls src="https://m801.music.126.net/20260326155137/fdb1e688785f44cb44b8bec10f4b5735/jdymusic/obj/wo3DlMOGwrbDjj7DisKw/17555556350/f890/1bc8/142f/2bfd1b21ce6609ef585fa2b455ae1ec7.mp3?vuutv=PsrdU6lR7AoVmlQFyeSeG06GuG9kj0IxAjF73L+VI389clJBzY7zkY60FUIkS4gdrr7AoTEWtR3SOt00GSLpbAtOBAl6sRH+ZZOTuJ5u3T8="></audio>
+        </div>
+        
+    </div>
+
+    <script>
+        // ========== 1. 枚举媒体设备逻辑 ==========
+        const enumerateBtn = document.getElementById('enumerateDevicesBtn');
+        const enumerateStatus = document.getElementById('enumerateStatus');
+        const deviceList = document.getElementById('deviceList');
+
+        // 枚举所有媒体设备
+        enumerateBtn.addEventListener('click', async () => {
+            try {
+                // 先请求权限（部分浏览器需要权限才能显示设备标签）
+                // await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+                
+                // 枚举设备
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                
+                // 清空旧列表
+                deviceList.innerHTML = '';
+                
+                // 遍历设备并展示
+                if (devices.length === 0) {
+                    deviceList.innerHTML = '<p>未检测到任何媒体设备</p>';
+                } else {
+                    devices.forEach((device, index) => {
+                        const deviceItem = document.createElement('div');
+                        deviceItem.className = 'device-item';
+                        deviceItem.innerHTML = `
+                            <p><span class="device-type">设备 ${index + 1} (${getDeviceTypeText(device.kind)})：</span></p>
+                            <p>设备ID：${device.deviceId || '未知'}</p>
+                            <p>设备名称：${device.label || '未授权（获取流后可显示）'}</p>
+                            <p>组ID：${device.groupId || '未知'}</p>
+                        `;
+                        deviceList.appendChild(deviceItem);
+                    });
+                }
+
+                enumerateStatus.className = 'status success';
+                enumerateStatus.textContent = `✅ 成功获取 ${devices.length} 个媒体设备`;
+            } catch (error) {
+                enumerateStatus.className = 'status error';
+                enumerateStatus.textContent = `❌ 获取设备失败：${error.message}`;
+                deviceList.innerHTML = `<p>错误：${error.message}</p>`;
+            }
+        });
+
+        // 设备类型文本转换
+        function getDeviceTypeText(kind) {
+            switch (kind) {
+                case 'audioinput': return '麦克风（音频输入）';
+                case 'videoinput': return '摄像头（视频输入）';
+                case 'audiooutput': return '扬声器（音频输出）';
+                default: return `未知类型 (${kind})`;
+            }
+        }
+
+        // ========== 2. 获取媒体流逻辑 ==========
+        const getAudioVideoBtn = document.getElementById('getAudioVideoBtn');
+        const getAudioOnlyBtn = document.getElementById('getAudioOnlyBtn');
+        const stopStreamBtn = document.getElementById('stopStreamBtn');
+        const streamStatus = document.getElementById('streamStatus');
+        const preview = document.getElementById('preview');
+        let currentStream = null; // 保存当前流，用于停止
+
+        // 获取摄像头+麦克风
+        getAudioVideoBtn.addEventListener('click', () => {
+            getMediaStream({ audio: true, video: true });
+        });
+
+        // 仅获取麦克风
+        getAudioOnlyBtn.addEventListener('click', () => {
+            getMediaStream({ audio: true, video: false });
+        });
+
+        // 停止媒体流
+        stopStreamBtn.addEventListener('click', () => {
+            if (currentStream) {
+                // 停止所有轨道
+                currentStream.getTracks().forEach(track => {
+                    track.stop();
+                });
+                currentStream = null;
+                
+                // 隐藏预览
+                preview.style.display = 'none';
+                preview.srcObject = null;
+                
+                // 更新状态
+                streamStatus.className = 'status info';
+                streamStatus.textContent = 'ℹ️ 媒体流已停止';
+                stopStreamBtn.disabled = true;
+                getAudioVideoBtn.disabled = false;
+                getAudioOnlyBtn.disabled = false;
+            }
+        });
+
+        // 通用获取媒体流函数
+        async function getMediaStream(constraints) {
+            try {
+                // 停止旧流（如果有）
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                }
+
+                // 获取新流
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+
+                // 显示预览（如果有视频轨道）
+                if (constraints.video) {
+                    preview.srcObject = stream;
+                    preview.style.display = 'block';
+                } else {
+                    preview.style.display = 'none';
+                    preview.srcObject = null;
+                }
+
+                // 更新状态
+                streamStatus.className = 'status success';
+                const trackInfo = constraints.video 
+                    ? '摄像头+麦克风' 
+                    : '仅麦克风';
+                streamStatus.textContent = `✅ 成功获取 ${trackInfo} 流 | 轨道数：${stream.getTracks().length}`;
+
+                // 更新按钮状态
+                stopStreamBtn.disabled = false;
+                getAudioVideoBtn.disabled = true;
+                getAudioOnlyBtn.disabled = true;
+
+            } catch (error) {
+                streamStatus.className = 'status error';
+                streamStatus.textContent = `❌ 获取流失败：${error.message}`;
+                
+                // 常见错误提示
+                if (error.name === 'NotAllowedError') {
+                    streamStatus.textContent += '（请授予音视频权限）';
+                } else if (error.name === 'NotFoundError') {
+                    streamStatus.textContent += '（未找到指定的媒体设备）';
+                }
+            }
+        }
+
+        // 页面加载时检测浏览器支持性
+        window.addEventListener('load', () => {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                enumerateStatus.className = 'status error';
+                enumerateStatus.textContent = '❌ 您的浏览器不支持 MediaDevices API';
+                streamStatus.className = 'status error';
+                streamStatus.textContent = '❌ 您的浏览器不支持 getUserMedia';
+                enumerateBtn.disabled = true;
+                getAudioVideoBtn.disabled = true;
+                getAudioOnlyBtn.disabled = true;
+            }
+        });
+    </script>
+</body>
+</html>

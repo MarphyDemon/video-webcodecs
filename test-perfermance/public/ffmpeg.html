@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FFmpeg 视频帧解码器</title>
+  
+  <style>
+    /* 基础样式重置 */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+    
+    body {
+      background-color: #f9fafb;
+      color: #1e293b;
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 16px;
+    }
+    
+    /* 头部样式 */
+    header {
+      background-color: white;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 16px 0;
+    }
+    
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .logo h1 {
+      font-size: 20px;
+      font-weight: bold;
+      color: #3b82f6;
+    }
+    
+    .header-info {
+      font-size: 14px;
+      color: #64748b;
+    }
+    
+    /* 主内容区 */
+    main {
+      padding: 32px 0;
+    }
+    
+    section {
+      margin-bottom: 40px;
+    }
+    
+    .card {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      padding: 24px;
+    }
+    
+    h2 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    /* 输入区域 */
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    
+    @media (min-width: 768px) {
+      .input-group {
+        flex-direction: row;
+      }
+    }
+    
+    input[type="text"] {
+      flex: 1;
+      padding: 12px 16px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 16px;
+      transition: all 0.2s;
+    }
+    
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+    
+    button {
+      background-color: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    
+    button:hover {
+      background-color: #2563eb;
+    }
+    
+    .help-text {
+      margin-top: 12px;
+      font-size: 14px;
+      color: #64748b;
+    }
+    
+    /* 状态和进度 */
+    .progress-container {
+      width: 100%;
+      background-color: #e2e8f0;
+      border-radius: 4px;
+      height: 10px;
+      margin: 8px 0;
+    }
+    
+    .progress-bar {
+      height: 100%;
+      background-color: #3b82f6;
+      border-radius: 4px;
+      width: 0%;
+      transition: width 0.3s;
+    }
+    
+    .progress-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      color: #64748b;
+    }
+    
+    .status-message {
+      margin-bottom: 16px;
+      color: #334155;
+    }
+    
+    /* 结果展示区 */
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    
+    .result-stats {
+      font-size: 14px;
+      color: #64748b;
+    }
+    
+    .result-stats strong {
+      color: #3b82f6;
+    }
+    
+    .clear-btn {
+      background: none;
+      color: #64748b;
+      padding: 4px 8px;
+      font-size: 14px;
+    }
+    
+    .clear-btn:hover {
+      background: none;
+      color: #ef4444;
+    }
+    
+    .frame-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+    }
+    
+    .frame-item {
+      background-color: #f1f5f9;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      transition: box-shadow 0.2s;
+    }
+    
+    .frame-item:hover {
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    
+    .frame-item img {
+      width: 100%;
+      height: auto;
+      object-fit: cover;
+    }
+    
+    .frame-caption {
+      padding: 8px;
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+    }
+    
+    /* 信息提示 */
+    .info-box {
+      background-color: #eff6ff;
+      border-left: 4px solid #3b82f6;
+      padding: 16px;
+      border-radius: 4px;
+    }
+    
+    .info-content {
+      display: flex;
+      gap: 12px;
+    }
+    
+    .info-text {
+      flex: 1;
+      font-size: 14px;
+      color: #1e40af;
+    }
+    
+    /* 错误信息 */
+    .error-box {
+      background-color: #fee2e2;
+      border-left: 4px solid #ef4444;
+      padding: 16px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+    }
+    
+    .error-content {
+      display: flex;
+      gap: 12px;
+    }
+    
+    .error-text {
+      flex: 1;
+      font-size: 14px;
+      color: #b91c1c;
+    }
+    
+    .error-help {
+      margin-top: 16px;
+      background-color: #fee2e2;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      border: 1px solid #fecaca;
+    }
+    
+    .error-help h4 {
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+    
+    .error-help ol {
+      margin-left: 20px;
+      margin-bottom: 8px;
+    }
+    
+    .error-help li {
+      margin-bottom: 4px;
+    }
+    
+    .error-help ul {
+      margin-left: 20px;
+    }
+    
+    /* 页脚 */
+    footer {
+      background-color: #1e293b;
+      color: white;
+      padding: 24px 0;
+      margin-top: auto;
+    }
+    
+    .footer-content {
+      text-align: center;
+      font-size: 14px;
+    }
+    
+    /* 隐藏/显示元素 */
+    .hidden {
+      display: none;
+    }
+    #saveAllBtn {
+  background-color: #10b981;
+  margin-right: 8px;
+}
+
+#saveAllBtn:hover {
+  background-color: #059669;
+}
+  </style>
+</head>
+<body>
+  <!-- 顶部导航 -->
+  <header>
+    <div class="container header-content">
+      <div class="logo">
+        <h1>视频帧解码器</h1>
+      </div>
+      <div class="header-info">
+        使用 FFmpeg 在浏览器中解码视频
+      </div>
+    </div>
+  </header>
+
+  <!-- 主内容区 -->
+  <main class="container">
+    <!-- 输入区域 -->
+    <section>
+      <div class="card">
+        <h2>输入视频 URL</h2>
+        <div class="input-group">
+          <input 
+            type="text" 
+            id="videoUrl" 
+            placeholder="例如: https://example.com/video.mp4" 
+            value="https://public-xmov.oss-cn-hangzhou.aliyuncs.com/avatar_sdk_prod/body_ani/M_CN03_show02/look/zhiming02_12367_new/interact02_cut_003.mp4"
+          >
+          <button id="decodeBtn">
+            <span>解码视频</span>
+          </button>
+        </div>
+        <p class="help-text">
+          支持 MP4 格式视频，解码时间取决于视频长度和浏览器性能
+        </p>
+      </div>
+    </section>
+
+    <!-- 状态和进度 -->
+    <section id="statusSection" class="hidden">
+      <div class="card">
+        <h2>处理中</h2>
+        <div id="statusMessage" class="status-message">
+          正在加载 FFmpeg 库...
+        </div>
+        <div class="progress-container">
+          <div id="progressBar" class="progress-bar"></div>
+        </div>
+        <div class="progress-info">
+          <span id="progressText">0%</span>
+          <span id="frameCount">已提取: 0 帧</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 错误信息 -->
+    <section id="errorSection" class="hidden">
+      <div class="error-box">
+        <div class="error-content">
+          <div class="error-text">
+            <p id="errorMessage"></p>
+            
+            <div id="sharedBufferHelp" class="error-help hidden">
+              <h4>解决方法：</h4>
+              <p class="mb-2">这个错误是由于浏览器安全限制导致的。要运行此应用，需要：</p>
+              <ol class="list-decimal">
+                <li>使用支持 SharedArrayBuffer 的现代浏览器（Chrome、Firefox 等）</li>
+                <li>如果在本地运行，请使用服务器（如 Node.js http-server）而非直接打开文件</li>
+                <li>服务器需要配置以下 HTTP 头：
+                  <ul class="list-disc ml-4 mt-1">
+                    <li>Cross-Origin-Opener-Policy: same-origin</li>
+                    <li>Cross-Origin-Embedder-Policy: require-corp</li>
+                  </ul>
+                </li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 结果展示区 -->
+    <section id="resultSection" class="hidden">
+      <div class="card">
+        <h2>解码后的视频帧</h2>
+        <div class="result-header">
+          <p class="result-stats">
+            共 <span id="totalFrames" class="strong">0</span> 帧
+          </p>
+          <div>
+            <button id="clearBtn" class="clear-btn">
+              清空结果
+            </button>
+          </div>
+        </div>
+        <div id="framesContainer" class="frame-grid">
+          <!-- 视频帧将在这里动态添加 -->
+        </div>
+      </div>
+    </section>
+
+    <!-- 信息提示 -->
+    <section>
+      <div class="info-box">
+        <div class="info-content">
+          <div class="info-text">
+            <p>
+              提示: 首次使用会加载 FFmpeg 库，可能需要几秒钟时间。视频解码过程会占用较多浏览器资源，大视频可能需要较长时间。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 页脚 -->
+  <footer>
+    <div class="container footer-content">
+      <p>使用 FFmpeg.js 在浏览器中解码视频帧 &copy; 2023</p>
+    </div>
+  </footer>
+  <div class="result-header">
+    <p class="result-stats">
+      共 <span id="totalFrames" class="strong">0</span> 帧
+    </p>
+    <div>
+      <button id="saveAllBtn">
+        保存所有图片
+      </button>
+      <button id="clearBtn" class="clear-btn">
+        清空结果
+      </button>
+    </div>
+  </div>
+  <!-- 加载 FFmpeg.js -->
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.10.1/dist/ffmpeg.min.js"></script>
+  
+  <script>
+    // 初始化 FFmpeg 实例
+    const { createFFmpeg, fetchFile } = FFmpeg;
+    const ffmpeg = createFFmpeg({ 
+      log: true,
+      corePath: 'https://unpkg.com/@ffmpeg/core@0.10.0/dist/ffmpeg-core.js'
+    });
+    
+    // DOM 元素
+    const videoUrlInput = document.getElementById('videoUrl');
+    const decodeBtn = document.getElementById('decodeBtn');
+    const statusSection = document.getElementById('statusSection');
+    const statusMessage = document.getElementById('statusMessage');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const frameCount = document.getElementById('frameCount');
+    const errorSection = document.getElementById('errorSection');
+    const errorMessage = document.getElementById('errorMessage');
+    const sharedBufferHelp = document.getElementById('sharedBufferHelp');
+    const resultSection = document.getElementById('resultSection');
+    const framesContainer = document.getElementById('framesContainer');
+    const totalFramesElement = document.getElementById('totalFrames');
+    const clearBtn = document.getElementById('clearBtn');
+    
+    // 状态变量
+    let isDecoding = false;
+    
+    // 事件监听
+    decodeBtn.addEventListener('click', decodeVideo);
+    clearBtn.addEventListener('click', clearResults);
+    
+    // 检查浏览器是否支持 SharedArrayBuffer
+    function checkBrowserSupport() {
+      if (typeof SharedArrayBuffer === 'undefined') {
+        return false;
+      }
+      return true;
+    }
+    
+    // 解码视频函数
+    async function decodeVideo() {
+      // 检查浏览器支持
+      if (!checkBrowserSupport()) {
+        showError('您的浏览器环境不支持 SharedArrayBuffer，这是解码视频所必需的。');
+        sharedBufferHelp.classList.remove('hidden');
+        return;
+      }
+      
+      // 验证 URL
+      const videoUrl = videoUrlInput.value.trim();
+      if (!videoUrl) {
+        showError('请输入有效的视频 URL');
+        return;
+      }
+      
+      // 检查是否正在解码
+      if (isDecoding) {
+        showError('正在处理，请等待完成');
+        return;
+      }
+      
+      // 重置状态
+      resetUI();
+      showStatus();
+      isDecoding = true;
+      decodeBtn.disabled = true;
+      decodeBtn.innerHTML = '<span>处理中...</span>';
+      let frameNumber = 1;
+      
+      try {
+        // 加载 FFmpeg
+        updateStatus('正在加载 FFmpeg 库...', 0);
+        if (!ffmpeg.isLoaded()) {
+          await ffmpeg.load();
+        }
+        
+        // 下载视频文件
+        updateStatus('正在下载视频...', 20);
+        const response = await fetch(videoUrl);
+        if (!response.ok) {
+          throw new Error(`下载失败: ${response.statusText}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        const videoData = new Uint8Array(arrayBuffer);
+        
+        // 将视频写入 FFmpeg 虚拟文件系统
+        updateStatus('准备解码...', 40);
+        ffmpeg.FS('writeFile', 'input.mp4', videoData);
+        
+        // 执行 FFmpeg 命令提取所有帧
+        updateStatus('正在解码视频帧...', 50);
+        let start = performance.now();
+        // 每秒提取24帧
+        await ffmpeg.run(
+          '-i', 'input.mp4',       // 输入文件
+          '-vf', 'fps=24',         // 每秒提取24帧
+          '-y',                    // 覆盖输出文件
+          'frame_%d.png'           // 输出帧文件
+          // '-qscale:v', '2', // JPEG 质量
+          // 'frame_%d.jpg'
+        );
+        console.log(">>>ffmpeg.run", performance.now() - start);
+        // 读取输出帧
+        updateStatus('正在处理帧数据...', 80);
+        const frames = [];
+        
+        // 收集所有生成的帧文件
+        while (true) {
+          const frameName = `frame_${frameNumber}.png`;
+          try {
+            // 检查文件是否存在
+            ffmpeg.FS('stat', frameName);
+            // 读取文件内容
+            const frameData = ffmpeg.FS('readFile', frameName);
+            frames.push(frameData);
+            
+            // 更新帧计数显示
+            updateFrameCount(frameNumber);
+            
+            frameNumber++;
+          } catch (e) {
+            // 文件不存在，退出循环
+            break;
+          }
+        }
+        console.log(">>>ffmpeg.frames", performance.now() - start);
+        // 显示结果
+        updateStatus('完成！正在显示结果...', 100);
+        displayFrames(frames);
+        
+      } catch (error) {
+        console.error('解码错误:', error);
+        
+        // 专门处理 SharedArrayBuffer 错误
+        if (error.message.includes('SharedArrayBuffer') || 
+            error.message.includes('SharedArrayBuffer is not defined')) {
+          showError('浏览器不支持 SharedArrayBuffer，无法运行 FFmpeg。');
+          sharedBufferHelp.classList.remove('hidden');
+        } else {
+          showError(`处理失败: ${error.message}`);
+        }
+      } finally {
+        // 清理资源
+        try {
+          // 删除虚拟文件系统中的文件
+          ffmpeg.FS('unlink', 'input.mp4');
+          for (let i = 1; i < frameNumber; i++) {
+            const frameName = `frame_${i}.png`;
+            try {
+              ffmpeg.FS('unlink', frameName);
+            } catch (e) { /* 忽略错误 */ }
+          }
+        } catch (e) {
+          console.warn('清理文件时出错:', e);
+        }
+        
+        // 重置状态
+        isDecoding = false;
+        decodeBtn.disabled = false;
+        decodeBtn.innerHTML = '<span>解码视频</span>';
+      }
+    }
+    
+    // 显示帧图像
+    function displayFrames(frames) {
+      if (frames.length === 0) {
+        showError('未提取到任何视频帧，请尝试其他视频');
+        return;
+      }
+      
+      // 清空容器
+      framesContainer.innerHTML = '';
+      
+      // 显示每个帧
+      frames.forEach((frameData, index) => {
+        // 创建 blob URL
+        const blob = new Blob([frameData.buffer], { type: 'image/png' });
+        const url = URL.createObjectURL(blob);
+        
+        // 创建图像元素
+        const frameElement = document.createElement('div');
+        frameElement.className = 'frame-item';
+        frameElement.innerHTML = `
+          <img src="${url}" alt="视频帧 ${index + 1}">
+          <div class="frame-caption">帧 ${index + 1}</div>
+        `;
+        
+        framesContainer.appendChild(frameElement);
+      });
+      
+      // 更新计数并显示结果
+      totalFramesElement.textContent = frames.length;
+      hideStatus();
+      showResult();
+    }
+    
+    // 清空结果
+    function clearResults() {
+      framesContainer.innerHTML = '';
+      totalFramesElement.textContent = '0';
+      hideResult();
+    }
+    
+    // UI 辅助函数
+    function showStatus() {
+      statusSection.classList.remove('hidden');
+    }
+    
+    function hideStatus() {
+      statusSection.classList.add('hidden');
+    }
+    
+    function showResult() {
+      resultSection.classList.remove('hidden');
+    }
+    
+    function hideResult() {
+      resultSection.classList.add('hidden');
+    }
+    
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorSection.classList.remove('hidden');
+      hideStatus();
+    }
+    
+    function hideError() {
+      errorSection.classList.add('hidden');
+      sharedBufferHelp.classList.add('hidden');
+    }
+    
+    function updateStatus(message, progress) {
+      statusMessage.textContent = message;
+      progressBar.style.width = `${progress}%`;
+      progressText.textContent = `${progress}%`;
+    }
+    
+    function updateFrameCount(count) {
+      frameCount.textContent = `已提取: ${count} 帧`;
+    }
+    
+    function resetUI() {
+      hideError();
+      hideResult();
+      progressBar.style.width = '0%';
+      progressText.textContent = '0%';
+      frameCount.textContent = '已提取: 0 帧';
+    }
+    // 下载所有图片
+// 获取保存按钮元素
+const saveAllBtn = document.getElementById('saveAllBtn');
+
+// 为保存按钮添加点击事件
+saveAllBtn.addEventListener('click', saveAllFrames);
+
+// 批量保存所有图片的函数
+async function saveAllFrames() {
+  const frameItems = document.querySelectorAll('.frame-item img');
+  if (frameItems.length === 0) {
+    alert('没有可保存的帧图片');
+    return;
+  }
+
+  // 显示保存中提示
+  saveAllBtn.disabled = true;
+  saveAllBtn.innerHTML = '<span>保存中...</span>';
+
+  try {
+    // 遍历所有图片并下载
+    for (let i = 0; i < frameItems.length; i++) {
+      const img = frameItems[i];
+      const frameNumber = i + 1;
+      
+      // 构建文件名（格式：frame_1.png, frame_2.png...）
+      const fileName = `frame_${frameNumber}.png`;
+      
+      // 下载图片
+      const response = await fetch(img.src);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      
+      // 创建下载链接并触发点击
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      // 延迟50ms避免浏览器下载限制
+      if (i < frameItems.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+
+    alert(`成功保存 ${frameItems.length} 张图片`);
+  } catch (error) {
+    console.error('保存图片失败:', error);
+    alert('保存图片时出错，请重试');
+  } finally {
+    // 恢复按钮状态
+    saveAllBtn.disabled = false;
+    saveAllBtn.innerHTML = '<span>保存所有图片</span>';
+  }
+}
+  </script>
+</body>
+</html>

@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Frame Renderer</title>
+    <script src="https://media.youyan.xyz/youling-lite-sdk/mp4box.all.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        #videoCanvas {
+            display: block;
+            margin: 20px auto;
+            background-color: #000;
+            max-width: 100%;
+            height: auto;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .status {
+            text-align: center;
+            color: #666;
+            margin: 10px 0;
+        }
+
+        .progress-container {
+            width: 100%;
+            height: 8px;
+            background-color: #ddd;
+            border-radius: 4px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9em;
+            color: #666;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .video-selector {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .video-selector select, .video-selector button {
+            padding: 8px 12px;
+            margin: 0 5px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Video Frame Renderer</h1>
+        <div class="video-selector">
+            <label for="videoSelect">选择视频：</label>
+            <select id="videoSelect">
+                <option value="">-- 请选择视频 --</option>
+                <!-- 选项将通过JS动态生成 -->
+            </select>
+            <button id="loadVideoBtn">加载并开始解帧</button>
+        </div>
+
+        <div class="status" id="status">等待选择视频...</div>
+        <div class="stats">
+            <div>Decoded: <span id="decodedFrames">0</span></div>
+            <div>Rendered: <span id="renderedFrames">0</span></div>
+            <div>Queue: <span id="queueSize">0</span></div>
+            <div>Debugger:<span id="debug"></span></div>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <canvas id="videoCanvas"></canvas>
+    </div>
+
+    <script src="https://media.youyan.xyz/youling-lite-sdk/mp4box.all.min.js"></script>
+    <script>
+        // 1. 视频源配置（文件名+完整URL映射）
+        const videoConfig = [
+            { name: "1080p", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/1080p.mp4" },
+            { name: "720p", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/720p.mp4" },
+            { name: "1080p_baseline", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/1080p_baseline.mp4" },
+            { name: "720p_baseline", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/720p_baseline.mp4" },
+            { name: "540p", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/540p.mp4" },
+            { name: "540p_baseline", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/540p_baseline.mp4" },
+            { name: "4k", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/4k.mp4" },
+            { name: "4k_baseline", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/4k_baseline.mp4" },
+            { name: "4k_pre", url: "https://public-xmov.oss-cn-hangzhou.aliyuncs.com/avatar_sdk_pre/body_ani/F_CN02_show52/look/AF034_10895_new/2160x3840_fullbody/idle_youling01_cut_002.mp4"}
+        ];
+        
+        let videoList = [];
+        // 全局变量
+        let canvas, ctx;
+        let currentVideoIndex = 0;
+        let frames = [];
+        let renderedFrames = [];
+        let totalDecodedFrames = 0;
+        let totalRenderedFrames = 0;
+        let currentVideoTotalFrames = 0;
+        let currentVideoDroppedFrames = 0;
+        let isRendering = false;
+        let isVideoComplete = false;
+        let animationFrameId = null;
+        let lastRenderTime = 0;
+        let lastFrameInterval = 0;
+        const FRAME_INTERVAL = 1000 / 24; // 24fps目标帧率
+        const MIN_BUFFER_FRAMES = 5;      // 最小缓冲帧数量（触发渲染阈值）
+        const MAX_ALLOWED_INTERVAL = FRAME_INTERVAL * 1.8; // 最大允许帧间隔（过滤异常帧）
+        
+        // 新增变量：存储视频原始尺寸
+        let videoWidth = 0;
+        let videoHeight = 0;
+        let selectedVideoUrl = '';
+        let selectedVideoName = '';
+
+        // 初始化
+        function init() {
+            canvas = document.getElementById('videoCanvas');
+            ctx = canvas.getContext('2d');
+            
+            // 设置Canvas的抗锯齿
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            
+            const videoSelect = document.getElementById('videoSelect');
+            videoConfig.forEach(video => {
+                const option = document.createElement('option');
+                option.value = video.url;
+                option.textContent = video.name; // 显示友好名称
+                videoSelect.appendChild(option);
+            });
+
+            // 绑定加载按钮点击事件
+            document.getElementById('loadVideoBtn').addEventListener('click', handleLoadVideo);
+        }
+        
+        function handleLoadVideo() {
+            const videoSelect = document.getElementById('videoSelect');
+            const selectedUrl = videoSelect.value;
+
+            // 校验选择
+            if (!selectedUrl) {
+                console.error("请先从下拉列表中选择视频！");
+                return;
+            }
+
+            // 停止当前任务（避免资源冲突）
+            stopCurrentTask();
+
+            // 记录选中视频信息
+            selectedVideoUrl = selectedUrl;
+            const selectedOption = videoSelect.options[videoSelect.selectedIndex];
+            selectedVideoName = selectedOption.textContent;
+
+            // 重置统计数据（仅重置当前视频相关，总统计保留）
+            frames = [];
+            currentVideoDroppedFrames = 0;
+            lastFrameInterval = 0;
+            currentVideoTotalFrames = 0;
+            isVideoComplete = false;
+            totalDecodedFrames = 0;
+            totalRenderedFrames = 0;
+
+            // 开始处理选中的视频
+            updateStatus(`准备加载视频：${selectedVideoName}`);
+            updateProgress(0);
+            videoList = [selectedUrl];
+            processVideoList();
+        }
+        
+        // 新增：停止当前任务
+        function stopCurrentTask() {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+            isRendering = false;
+            isVideoComplete = true;
+            
+            // 清空帧队列并释放资源，但只关闭队列中剩余的帧
+            // 避免关闭正在处理中的帧（已经通过shift()取出的帧）
+            if (frames) {
+                frames.forEach(frame => {
+                    try {
+                        frame.close();
+                    } catch (e) {
+                        console.log(e)
+                    }
+                });
+                frames = [];
+            }
+        }
+        
+        // 处理视频列表（含视频加载耗时记录）
+        async function processVideoList() {
+            isVideoComplete = false;
+            frames = [];
+            currentVideoDroppedFrames = 0;
+            lastFrameInterval = 0;
+
+            // 循环播放逻辑
+            if (currentVideoIndex >= videoList.length) {
+                currentVideoIndex = 0;
+            }
+
+            const videoUrl = videoList[currentVideoIndex];
+            const videoName = videoUrl.split('/').pop();
+            updateStatus(`正在加载视频：${videoName}`);
+            updateProgress(0);
+            currentVideoTotalFrames = 0;
+
+            try {
+                // 记录视频文件加载耗时（fetch + arrayBuffer转换）
+                const response = await fetch(videoUrl);
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                const arrayBuffer = await response.arrayBuffer();
+
+                const mp4box = MP4Box.createFile();
+                
+                function getDescription() {
+                    const entry = mp4box.moov.traks[0].mdia.minf.stbl.stsd.entries[0];
+                    const box = entry.avcC ?? entry.hvcC ?? entry.vpcC;
+                    if (box != null) {
+                        const stream = new DataStream(
+                            undefined,
+                            0,
+                            DataStream.BIG_ENDIAN
+                        )
+                        box.write(stream)
+                        // slice()方法的作用是移除moov box的header信息
+                        return new Uint8Array(stream.buffer.slice(8))
+                    }
+                }
+                
+                let videoTrack = null;
+                let videoDecoder = null;
+                let nbSampleTotal = 0;
+                let countSample = 0;
+                
+                mp4box.onReady = function (info) {
+                    videoTrack = info.videoTracks[0];
+                    nbSampleTotal = videoTrack.nb_samples;
+                    currentVideoTotalFrames = nbSampleTotal;
+                    
+                    // 存储视频原始尺寸
+                    videoWidth = videoTrack.track_width;
+                    videoHeight = videoTrack.track_height;
+                    
+                    // 设置Canvas尺寸 - 使用原始视频尺寸
+                    updateCanvasSize(videoWidth, videoHeight);
+                    
+                    updateStatus(`视频准备就绪：${videoWidth}x${videoHeight}, 总帧数：${nbSampleTotal}`);
+                    
+                    videoDecoder = new VideoDecoder({
+                        output: (frame) => {
+                            countSample++;
+                            totalDecodedFrames++;
+                            frames.push(frame);
+
+                            // 缓冲帧达到阈值时启动渲染
+                            if (!isRendering && frames.length >= MIN_BUFFER_FRAMES) {
+                                startRendering();
+                            }
+                            
+                            // 更新统计信息
+                            updateStats();
+                        },
+                        error: (e) => {
+                            console.error(`[主线程] 视频解码错误（${videoName}）: ${e.message}`);
+                            updateStatus(`解码错误: ${e.message}`);
+                            currentVideoIndex++;
+                            setTimeout(processVideoList, 1000);
+                        }
+                    });
+                    
+                    videoDecoder.configure({
+                        codec: videoTrack.codec,
+                        width: videoTrack.track_width,
+                        height: videoTrack.track_height,
+                        hardwareAcceleration: 'prefer-hardware',
+                        description: getDescription()
+                    });
+                    
+                    mp4box.setExtractionOptions(videoTrack.id, null, {
+                        nbSamples: nbSampleTotal,
+                        rapAlignement: true
+                    });
+                    mp4box.start();
+                };
+                
+                mp4box.onSamples = function (trackId, ref, samples) {
+                    if (videoTrack.id === trackId) {
+                        // 注意：不要在这里调用mp4box.stop()，否则会影响后续帧的获取
+                        
+                        countSample += samples.length;
+
+                        for (const sample of samples) {
+                            const type = sample.is_sync ? 'key' : 'delta';
+
+                            const chunk = new EncodedVideoChunk({
+                                type,
+                                timestamp: sample.cts,
+                                duration: sample.duration,
+                                data: sample.data
+                            });
+                            videoDecoder.decode(chunk);
+                        }
+                        
+                        // 当所有样本都处理完毕后再flush
+                        if (countSample >= nbSampleTotal) {
+                            videoDecoder.flush().then(() => {
+                                console.log(`[主线程] 解码完成：${videoName}，总帧数：${nbSampleTotal}`);
+                                console.log(`解码耗时：${(performance.now() - startTime).toFixed(2)}ms`);
+                                isVideoComplete = true;
+                            });
+                        }
+                    }
+                };
+                
+                arrayBuffer.fileStart = 0;
+                mp4box.appendBuffer(arrayBuffer);
+                let startTime = performance.now();
+                mp4box.flush()
+            } catch (err) {
+                // 视频加载错误处理
+                console.error(`Load error: ${err.message}`);
+                updateStatus(`加载失败: ${err.message}`);
+                currentVideoIndex++;
+            }
+        }
+
+        // 新增：更新Canvas尺寸
+        function updateCanvasSize(width, height) {
+            if (!width || !height) return;
+            
+            // 设置Canvas的实际尺寸（像素尺寸）
+            canvas.width = width;
+            canvas.height = height;
+            
+            // 可以根据需要调整显示尺寸，但保持宽高比
+            const container = canvas.parentElement;
+            const containerWidth = container.clientWidth;
+            
+            // 如果视频宽度超过容器宽度，则缩放
+            if (width > containerWidth - 40) { // 减去一些边距
+                const scale = (containerWidth - 40) / width;
+                canvas.style.width = `${containerWidth - 40}px`;
+                canvas.style.height = `${Math.round(height * scale)}px`;
+            } else {
+                // 否则使用原始尺寸
+                canvas.style.width = `${width}px`;
+                canvas.style.height = `${height}px`;
+            }
+        }
+
+        // 启动渲染循环（基于requestAnimationFrame，确保流畅性）
+        function startRendering() {
+            if (isRendering) return;
+            isRendering = true;
+            lastRenderTime = performance.now();
+            renderFrames();
+        }
+
+        // 帧渲染核心逻辑（按24fps目标帧率渲染）
+        function renderFrames(timestamp) {
+            if (!timestamp) timestamp = performance.now();
+            const elapsed = timestamp - lastRenderTime;
+
+            // 达到目标帧间隔时渲染一帧
+            if (elapsed >= FRAME_INTERVAL) {
+                lastFrameInterval = elapsed;
+                lastRenderTime = timestamp;
+
+                if (frames.length > 0) {
+                    // 清空Canvas
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    
+                    // 取出缓冲队列中的首帧
+                    const frame = frames.shift();
+                    
+                    try {
+                        // 关键优化：使用原始尺寸绘制，避免缩放失真
+                        ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+                    } catch (error) {
+                        console.error('Error drawing frame:', error);
+                    } finally {
+                        // 释放帧资源，即使绘制失败也要确保资源被释放
+                        try {
+                            frame.close();
+                        } catch (e) {
+                            console.log('Error closing frame:', e);
+                        }
+                    }
+                    
+                    // 更新渲染统计
+                    totalRenderedFrames++;
+                    
+                    // 更新调试信息
+                    document.getElementById('debug').textContent =
+                        `Frame interval: ${lastFrameInterval.toFixed(2)}ms (Target: ${FRAME_INTERVAL.toFixed(2)}ms) | Dropped: ${currentVideoDroppedFrames}`;
+
+                    // 更新渲染进度
+                    const progress = currentVideoTotalFrames > 0
+                        ? Math.floor((totalRenderedFrames / currentVideoTotalFrames) * 100)
+                        : 0;
+                    updateProgress(progress);
+                    updateStatus(`正在渲染：${totalRenderedFrames}/${currentVideoTotalFrames} (${progress}%)`);
+
+                    // 检查是否渲染完成
+                    if (totalRenderedFrames >= currentVideoTotalFrames && isVideoComplete) {
+                        updateStatus(`渲染完成：${totalRenderedFrames}帧`);
+                        isRendering = false;
+                        for (const frame of frames) {
+                            frame.close();
+                        }
+                        // 延迟处理下一个视频
+                        setTimeout(() => {
+                            currentVideoIndex++;
+                            processVideoList();
+                        }, 1000); // 延迟1秒，让用户看到最后一帧
+                        
+                        return;
+                    }
+                } else if (isVideoComplete) {
+                    // 如果队列已空且视频已完成，结束渲染
+                    updateStatus(`渲染完成：${totalRenderedFrames}帧`);
+                    isRendering = false;
+                    
+                    setTimeout(() => {
+                        currentVideoIndex++;
+                        processVideoList();
+                    }, 1000);
+                    
+                    return;
+                }
+            }
+
+            // 继续请求下一帧渲染
+            if (isRendering) {
+                animationFrameId = requestAnimationFrame(renderFrames);
+            }
+        }
+
+        // 新增：更新状态信息
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+        }
+
+        // 统计信息更新工具函数
+        function updateStats() {
+            document.getElementById('decodedFrames').textContent = totalDecodedFrames;
+            document.getElementById('renderedFrames').textContent = totalRenderedFrames;
+            document.getElementById('queueSize').textContent = frames.length;
+        }
+
+        // 进度条更新工具函数
+        function updateProgress(percent) {
+            document.getElementById('progressBar').style.width = `${percent}%`;
+        }
+
+        // 页面生命周期管理（避免资源泄漏）
+        window.addEventListener('load', init);
+        window.addEventListener('beforeunload', () => {
+            stopCurrentTask();
+        });
+    </script>
+</body>
+
+</html>

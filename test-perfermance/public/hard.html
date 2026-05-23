@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Frame Renderer</title>
+    <script src="https://media.youyan.xyz/youling-lite-sdk/mp4box.all.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        #videoCanvas {
+            display: block;
+            margin: 20px auto;
+            background-color: #000;
+            max-width: 100%;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .status {
+            text-align: center;
+            color: #666;
+            margin: 10px 0;
+        }
+
+        .progress-container {
+            width: 100%;
+            height: 8px;
+            background-color: #ddd;
+            border-radius: 4px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9em;
+            color: #666;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Video Frame Renderer</h1>
+        <div class="video-selector">
+            <label for="videoSelect">选择视频：</label>
+            <select id="videoSelect">
+                <option value="">-- 请选择视频 --</option>
+                <!-- 选项将通过JS动态生成 -->
+            </select>
+            <button id="loadVideoBtn">加载并开始解帧</button>
+        </div>
+
+        <div class="status" id="status">等待选择视频...</div>
+        <div class="stats">
+            <div>Decoded: <span id="decodedFrames">0</span></div>
+            <div>Rendered: <span id="renderedFrames">0</span></div>
+            <div>Queue: <span id="queueSize">0</span></div>
+            <div>Debugger:<span id="debug"></span></div>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <canvas id="videoCanvas"></canvas>
+        <!-- <video id="video" controls autoplay muted loop width="400px"></video> -->
+    </div>
+
+    <script src="https://media.youyan.xyz/youling-lite-sdk/vconsole.js"></script>
+    <script>
+        var vConsole = new VConsole();
+    </script>
+    <script>
+        // 1. 视频源配置（文件名+完整URL映射）
+        const videoConfig = [
+            { name: "1080p",  url: "https://media.youyan.xyz/youling-lite-sdk/mobile/1080p.mp4"},
+            { name: "720p", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/720p.mp4"},
+            { name: "1080p_baseline",  url: "https://media.youyan.xyz/youling-lite-sdk/mobile/1080p_baseline.mp4"},
+            { name: "720p_baseline", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/720p_baseline.mp4"},
+            { name: "540p", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/540p.mp4"},
+            { name: "540p_baseline", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/540p_baseline.mp4"},
+            { name: "4k", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/4k.mp4"},
+            { name: "4k_baseline", url: "https://media.youyan.xyz/youling-lite-sdk/mobile/4k_baseline.mp4"},
+        ];
+        let videoList = []
+        // 全局变量
+        let canvas, ctx;
+        let currentVideoIndex = 0;
+        let frames = [];
+        let renderedFrames = [];
+        let totalDecodedFrames = 0;
+        let totalRenderedFrames = 0;
+        let currentVideoTotalFrames = 0;
+        let currentVideoDroppedFrames = 0;
+        let isRendering = false;
+        let isVideoComplete = false;
+        let worker = null;
+        let animationFrameId = null;
+        let lastRenderTime = 0;
+        let lastFrameInterval = 0;
+        const FRAME_INTERVAL = 1000 / 24; // 24fps目标帧率
+        const MIN_BUFFER_FRAMES = 5;      // 最小缓冲帧数量（触发渲染阈值）
+        const MAX_ALLOWED_INTERVAL = FRAME_INTERVAL * 1.8; // 最大允许帧间隔（过滤异常帧）
+        let index = 0;
+
+        // 初始化
+        function init() {
+            canvas = document.getElementById('videoCanvas');
+            ctx = canvas.getContext('2d');
+            const videoSelect = document.getElementById('videoSelect');
+            videoConfig.forEach(video => {
+                const option = document.createElement('option');
+                option.value = video.url;
+                option.textContent = video.name; // 显示友好名称
+                videoSelect.appendChild(option);
+            });
+
+            // 绑定加载按钮点击事件
+            document.getElementById('loadVideoBtn').addEventListener('click', handleLoadVideo);
+        }
+        function handleLoadVideo() {
+            const videoSelect = document.getElementById('videoSelect');
+            const selectedUrl = videoSelect.value;
+
+            // 校验选择
+            if (!selectedUrl) {
+                updateStatus("请先从下拉列表中选择视频！");
+                return;
+            }
+
+            // 停止当前任务（避免资源冲突）
+            // stopCurrentTask();
+
+            // 记录选中视频信息
+            selectedVideoUrl = selectedUrl;
+            const selectedOption = videoSelect.options[videoSelect.selectedIndex];
+            selectedVideoName = selectedOption.textContent;
+
+            // 重置统计数据（仅重置当前视频相关，总统计保留）
+            frames = [];
+            currentVideoDroppedFrames = 0;
+            lastFrameInterval = 0;
+            currentVideoTotalFrames = 0;
+            isVideoComplete = false;
+
+            // 开始处理选中的视频
+            updateStatus(`准备加载视频：${selectedVideoName}`);
+            updateProgress(0);
+            videoList = [selectedUrl];
+            processVideoList();
+        }
+        // 处理视频列表（含视频加载耗时记录）
+        async function processVideoList() {
+            isVideoComplete = false;
+            frames = [];
+            currentVideoDroppedFrames = 0;
+            lastFrameInterval = 0;
+
+            // 循环播放逻辑
+            if (currentVideoIndex >= videoList.length) {
+                currentVideoIndex = 0;
+                updateStatus(`Loop started. Total rendered: ${totalRenderedFrames}`);
+            }
+
+            const videoUrl = videoList[currentVideoIndex];
+            const videoName = videoUrl.split('/').pop();
+            updateStatus(`Processing video ${currentVideoIndex + 1}/${videoList.length}: ${videoName}`);
+            updateProgress(0);
+            currentVideoTotalFrames = 0;
+
+            try {
+                // 记录视频文件加载耗时（fetch + arrayBuffer转换）
+                const startLoad = performance.now();
+                const response = await fetch(videoUrl);
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                const arrayBuffer = await response.arrayBuffer();
+                const endLoad = performance.now();
+                // console.log(`[主线程] 视频文件加载耗时（${videoName}）: ${(endLoad - startLoad).toFixed(2)} ms`);
+
+                const file = { data: arrayBuffer, name: videoName };
+
+                // 终止旧Worker（避免资源泄漏）
+                if (worker) {
+                    worker.postMessage({ type: 'abort' });
+                    worker.terminate();
+                    worker = null;
+                }
+
+                // 创建新的解码Worker
+                const workerCode = `
+       importScripts('https://media.youyan.xyz/youling-lite-sdk/mp4box.all.min.js');
+
+        let abortFlag = false;
+        let mp4boxfile = null;
+        let videoDecoder = null;
+        let videoTrack = null;
+        let arrayBuffer = null;
+        let lastFrameTs = 0;
+        let droppedFrames = 0;
+        const MAX_FRAME_INTERVAL = ${MAX_ALLOWED_INTERVAL};
+        const TARGET_INTERVAL = ${FRAME_INTERVAL};
+
+        // DataStream构造函数（保持不变，用于解码器配置）
+        function DataStream(buffer, byteOffset, littleEndian) {
+            this.buffer = buffer || new ArrayBuffer(0);
+            this.byteOffset = byteOffset || 0;
+            this.littleEndian = littleEndian || false;
+            this.position = 0;
+            this.view = new DataView(this.buffer, this.byteOffset);
+        }
+        DataStream.BIG_ENDIAN = false;
+        DataStream.LITTLE_ENDIAN = true;
+        DataStream.prototype.write = function(value, type) {
+            switch(type) {
+                case 'Uint8':
+                    this.ensureCapacity(1);
+                    this.view.setUint8(this.position, value);
+                    this.position += 1;
+                    break;
+                case 'Uint32':
+                    this.ensureCapacity(4);
+                    this.view.setUint32(this.position, value, this.littleEndian);
+                    this.position += 4;
+                    break;
+                default:
+                    throw new Error('Unsupported type: ' + type);
+            }
+        };
+        DataStream.prototype.ensureCapacity = function(additionalBytes) {
+            if (this.position + additionalBytes > this.buffer.byteLength) {
+                const newBuffer = new ArrayBuffer(this.position + additionalBytes);
+                new Uint8Array(newBuffer).set(new Uint8Array(this.buffer));
+                this.buffer = newBuffer;
+                this.view = new DataView(this.buffer);
+            }
+        };
+
+        onmessage = function(e) {
+            if (e.data.type === 'decode') {
+                abortFlag = false;
+                lastFrameTs = 0;
+                droppedFrames = 0;
+                decodeFile(e.data.file);
+            } else if (e.data.type === 'abort') {
+                abortFlag = true;
+                if (videoDecoder) {
+                    try { videoDecoder.close(); } catch (err) {}
+                    videoDecoder = null;
+                }
+                if (mp4boxfile) {
+                    try { mp4boxfile.flush(); } catch (err) {}
+                    mp4boxfile = null;
+                }
+                videoTrack = null;
+                arrayBuffer = null;
+                self.close();
+            }
+        };
+
+        function decodeFile(file) {
+            arrayBuffer = file.data;
+            mp4boxfile = MP4Box.createFile();
+            videoTrack = null;
+            let frameIndex = 0;
+            let totalFrames = 0;
+            
+            mp4boxfile.onReady = function(info) {
+                if (abortFlag) return;
+
+                videoTrack = info.videoTracks[0];
+                if (!videoTrack) {
+                    postMessage({ type: 'error', error: '未找到视频轨道' });
+                    return;
+                }
+                // 计算视频总帧数（-2是为了过滤首尾可能的异常帧）
+                totalFrames = videoTrack.nb_samples;
+                postMessage({ 
+                    type: 'videoInfo', 
+                    width: videoTrack.track_width, 
+                    height: videoTrack.track_height,
+                    totalFrames: totalFrames,
+                    fileName: file.name
+                });
+                // 设置样本提取选项
+                mp4boxfile.setExtractionOptions(videoTrack.id, null, {
+                    nbSamples: totalFrames,
+                    rapAlignement: true
+                });
+                mp4boxfile.start();
+            };
+            
+            mp4boxfile.onSamples = function(trackId, ref, samples) {
+                if (abortFlag || !videoTrack || trackId !== videoTrack.id) return;
+                
+                if (!videoDecoder) {
+                    try {
+                        videoDecoder = new VideoDecoder({
+                            output: handleFrame,
+                            error: err => postMessage({ type: 'error', error: '解码错误：' + err.message })
+                        });
+                        // 配置解码器（获取视频编码信息）
+                        const entry = mp4boxfile.moov.traks[0].mdia.minf.stbl.stsd.entries[0];
+                        const box = entry.avcC ?? entry.hvcC ?? entry.vpcC;
+                        let description;
+                        if (box) {
+                            const stream = new DataStream(undefined, 0, DataStream.BIG_ENDIAN);
+                            box.write(stream);
+                            description = new Uint8Array(stream.buffer.slice(8));
+                        }
+                        videoDecoder.configure({
+                            codec: videoTrack.codec,
+                            codedWidth: videoTrack.track_width,
+                            codedHeight: videoTrack.track_height,
+                            description,
+                            optimizeForLatency: true,
+                            hardwareAcceleration: "prefer-software" // 优先硬件加速
+                        });
+                        postMessage({ type: 'debug', message: '解码器配置完成' });
+                    } catch (err) {
+                        postMessage({ type: 'error', error: '解码器配置失败：' + err.message });
+                        return;
+                    }
+                }
+                
+                // 解码每个样本（帧）
+                for (let i = 0; i < samples.length; i++) {
+                    if (abortFlag) break;
+                    const sample = samples[i];
+                    try {
+                        videoDecoder.decode(new EncodedVideoChunk({
+                            type: sample.is_sync ? 'key' : 'delta',
+                            timestamp: sample.cts,
+                            duration: sample.duration || 0,
+                            data: sample.data
+                        }));
+                    } catch (err) {
+                        postMessage({ type: 'error', error: '样本解码失败：' + err.message });
+                    }
+                }
+                    
+        videoDecoder.flush().then(() => {
+      postMessage({ type: 'done' });
+    });
+            };
+            
+            
+            function handleFrame(videoFrame) {
+                if (abortFlag) {
+                    videoFrame.close();
+                    return;
+                }
+                
+                // 计算帧间隔，过滤异常帧
+                const currentTs = videoFrame.timestamp / 1000;
+                const frameInterval = lastFrameTs ? (currentTs - lastFrameTs) : TARGET_INTERVAL;
+                
+                if (frameIndex > 0 && frameInterval > MAX_FRAME_INTERVAL && !videoFrame.key) {
+                    droppedFrames++;
+                    postMessage({ 
+                        type: 'debug', 
+                        message: '丢弃异常帧 #' + frameIndex + '（间隔：' + frameInterval.toFixed(2) + 'ms）'
+                    });
+                    videoFrame.close();
+                    return;
+                }
+                
+                lastFrameTs = currentTs;
+                // 发送解码后的帧到主线程
+                postMessage({ 
+                    type: 'frame', 
+                    frame: videoFrame, 
+                    index: frameIndex++, 
+                    totalFrames: totalFrames,
+                    interval: frameInterval,
+                    dropped: droppedFrames
+                }, [videoFrame]);// 转移帧所有权，减少内存复制
+            }
+            
+            arrayBuffer.fileStart = 0;
+            mp4boxfile.appendBuffer(arrayBuffer);
+            mp4boxfile.flush();
+        }
+                `;
+
+                // 创建Worker Blob和URL
+                const blob = new Blob([workerCode], { type: "application/javascript" });
+                const workerURL = URL.createObjectURL(blob);
+                worker = new Worker(workerURL);
+
+                // 监听Worker消息（主线程处理逻辑）
+                worker.onmessage = function (e) {
+                    switch (e.data.type) {
+                        case 'videoInfo':
+                            // 接收视频信息，初始化Canvas尺寸
+                            canvas.width = e.data.width;
+                            canvas.height = e.data.height;
+                            currentVideoTotalFrames = e.data.totalFrames;
+                            updateStatus(`Processing ${e.data.fileName} (${e.data.width}x${e.data.height}, Codec: ${e.data.codec})`);
+                            // console.log(`[主线程] 视频信息：${e.data.fileName} | 分辨率 ${e.data.width}x${e.data.height} | 总帧数 ${e.data.totalFrames}`);
+                            break;
+
+                        case 'frame':
+                            // 接收解码帧，加入缓冲队列
+                            frames.push(e.data.frame);
+                            totalDecodedFrames++;
+                            lastFrameInterval = e.data.interval;
+                            currentVideoDroppedFrames = e.data.dropped;
+
+                            // 更新进度和状态
+                            const progress = currentVideoTotalFrames > 0
+                                ? Math.floor((e.data.index / currentVideoTotalFrames) * 100)
+                                : 0;
+                            updateProgress(progress);
+                            updateStatus(`Decoding frame ${e.data.index + 1}/${currentVideoTotalFrames} (Dropped: ${e.data.dropped})`);
+                            updateStats();
+
+                            // 缓冲帧达到阈值时启动渲染
+                            if (!isRendering && frames.length >= MIN_BUFFER_FRAMES) {
+                                startRendering();
+                            }
+                            break;
+
+                        case 'done':
+                        console.log(`[主线程] 解码完成：${videoName}，耗时：${performance.now() - startTime}ms`);
+                            // 解码完成处理
+                            const statusText = e.data.droppedFrames > 0
+                                ? `Decoding complete (Total: ${currentVideoTotalFrames} | Extracted: ${e.data.totalProcessedFrames} | Dropped: ${e.data.droppedFrames})`
+                                : `Decoding complete (${currentVideoTotalFrames} frames)`;
+                            updateStatus(statusText);
+                            updateProgress(100);
+                            updateStats();
+                            // 若未启动渲染，手动触发（避免缓冲帧不足的情况）
+                            if (!isRendering && frames.length > 0) {
+                                startRendering();
+                            }
+                            break;
+                        case 'debug':
+                            // console.log(`[主线程] 调试信息：${e.data.message}`);
+                            break;
+
+                        case 'error':
+                            // 错误处理
+                            // console.error(`[主线程] 错误：${e.data.error}`);
+                            updateStatus(`Error: ${e.data.error}`);
+                            // 跳过当前视频，处理下一个
+                            currentVideoIndex++;
+                            setTimeout(processVideoList, 1000);
+                            break;
+                    }
+                };
+
+                // 向Worker发送解码请求
+                let startTime = performance.now();
+                worker.postMessage({ type: 'decode', file: file });
+
+            } catch (err) {
+                // 视频加载错误处理
+                // console.error(`[主线程] 视频加载错误（${videoName}）: ${err.message}`);
+                updateStatus(`Load error: ${err.message}`);
+                currentVideoIndex++;
+                setTimeout(processVideoList, 1000);
+            }
+        }
+
+        // 启动渲染循环（基于requestAnimationFrame，确保流畅性）
+        function startRendering() {
+            if (isRendering) return;
+            isRendering = true;
+            lastRenderTime = performance.now();
+            renderFrames();
+        }
+
+        // 帧渲染核心逻辑（按24fps目标帧率渲染）
+        function renderFrames(timestamp) {
+            if (!timestamp) timestamp = performance.now();
+            const elapsed = timestamp - lastRenderTime;
+
+            // 达到目标帧间隔时渲染一帧
+            if (elapsed >= FRAME_INTERVAL) {
+                lastRenderTime = timestamp;
+
+                if (frames.length > 0) {
+                    // 清空Canvas
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    // 取出缓冲队列中的首帧
+                    const frame = frames.shift();
+                    // 渲染帧（适配Canvas尺寸）
+                    ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+                    // 释放帧资源（避免内存泄漏）
+                    // frame.close();
+                    renderedFrames.push(frame);
+
+                    // 更新渲染统计
+                    totalRenderedFrames++;
+                    updateStats();
+
+                    // 更新调试信息
+                    document.getElementById('debug').textContent =
+                        `Frame interval: ${lastFrameInterval.toFixed(2)}ms (Target: ${FRAME_INTERVAL.toFixed(2)}ms) | Dropped: ${currentVideoDroppedFrames}`;
+
+                    // 更新渲染进度
+                    const renderedInVideo = totalRenderedFrames % currentVideoTotalFrames;
+                    const progress = currentVideoTotalFrames > 0
+                        ? Math.floor((renderedInVideo / currentVideoTotalFrames) * 100)
+                        : 0;
+                    updateStatus(`Rendering video ${currentVideoIndex + 1}/${videoList.length} (${progress}%)`);
+
+                    // 标记当前视频渲染完成（最后一帧已渲染）
+                    if (renderedInVideo === currentVideoTotalFrames - 1) {
+                        isVideoComplete = true;
+                        closeAllFrames();
+                    }
+                    if (renderedFrames.length > 3) {
+                        const renderedFrame = renderedFrames.shift();
+                        renderedFrame.close();
+                    }
+                }
+
+                // 当前视频渲染完成且缓冲队列为空，处理下一个视频
+                if (isVideoComplete && frames.length === 0) {
+                    isRendering = false;
+                    currentVideoIndex++;
+                    setTimeout(processVideoList, 100); // 延迟100ms避免频繁切换
+                    return;
+                }
+            }
+
+            // 继续请求下一帧渲染
+            animationFrameId = requestAnimationFrame(renderFrames);
+        }
+
+        function closeAllFrames() {
+            frames.forEach(frame => frame.close());
+            frames = [];
+        }
+
+        // 统计信息更新工具函数
+        function updateStats() {
+            document.getElementById('decodedFrames').textContent = totalDecodedFrames;
+            document.getElementById('renderedFrames').textContent = totalRenderedFrames;
+            document.getElementById('queueSize').textContent = frames.length;
+        }
+
+        // 状态文本更新工具函数
+        function updateStatus(text) {
+            document.getElementById('status').textContent = text;
+        }
+
+        // 进度条更新工具函数
+        function updateProgress(percent) {
+            document.getElementById('progressBar').style.width = `${percent}%`;
+        }
+
+        // 页面生命周期管理（避免资源泄漏）
+        window.addEventListener('load', init);
+        window.addEventListener('beforeunload', () => {
+            // 终止Worker
+            if (worker) {
+                worker.postMessage({ type: 'abort' });
+                worker.terminate();
+            }
+            // 取消渲染循环
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            // 释放所有缓冲帧资源
+            frames.forEach(frame => frame.close());
+        });
+    </script>
+</body>
+
+</html>

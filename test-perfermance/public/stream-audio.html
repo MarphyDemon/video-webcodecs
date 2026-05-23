@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opus → PCM 流式播放器（适配 AudioWorklet）</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft YaHei", Arial, sans-serif;
+        }
+
+        body {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            background: #f8f9fa;
+        }
+
+        .container {
+            background: #fff;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        h1 {
+            color: #2d3748;
+            font-size: 1.8rem;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        .control-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        button {
+            padding: 0.7rem 1.4rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        #selectBtn {
+            background: #4299e1;
+            color: #fff;
+        }
+
+        #startBtn {
+            background: #48bb78;
+            color: #fff;
+        }
+
+        #playBtn {
+            background: #f59e0b;
+            color: #fff;
+        }
+
+        #stopBtn {
+            background: #e53e3e;
+            color: #fff;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .file-container {
+            margin: 1.5rem 0;
+            padding: 1rem;
+            border: 1px dashed #dee2e6;
+            border-radius: 8px;
+        }
+
+        .file-title {
+            color: #4a5568;
+            font-size: 1.1rem;
+            margin-bottom: 0.8rem;
+        }
+
+        #fileList {
+            list-style: none;
+            max-height: 180px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+
+        #fileList li {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #f0f0f0;
+            color: #718096;
+        }
+
+        #fileList li:last-child {
+            border-bottom: none;
+        }
+
+        .status-group {
+            margin: 1.5rem 0;
+            padding: 1.2rem;
+            background: #f7fafc;
+            border-radius: 8px;
+        }
+
+        .status-item {
+            margin: 0.6rem 0;
+            color: #4a5568;
+            font-size: 0.95rem;
+        }
+
+        .status-item span {
+            color: #2d3748;
+            font-weight: 500;
+        }
+
+        .log-container {
+            margin: 1.5rem 0;
+            padding: 1rem;
+            background: #2d3748;
+            color: #e2e8f0;
+            border-radius: 8px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        .log-item {
+            margin: 0.3rem 0;
+            line-height: 1.5;
+        }
+
+        .log-time {
+            color: #9f7aea;
+        }
+
+        .log-info {
+            color: #48bb78;
+        }
+
+        .log-debug {
+            color: #4299e1;
+        }
+
+        .log-error {
+            color: #e53e3e;
+        }
+
+        .notice {
+            color: #9f7aea;
+            font-size: 0.9rem;
+            margin-top: 1rem;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Opus → PCM 流式播放器（适配 AudioWorklet）</h1>
+
+        <!-- 控制按钮区 -->
+        <div class="control-group">
+            <input type="file" id="fileInput" webkitdirectory directory accept=".opus" style="display: none;">
+            <button id="selectBtn">选择 Opus 文件夹</button>
+            <button id="startBtn" disabled>开始解码推送数据</button>
+            <button id="playBtn" >播放数据</button>
+            <button id="stopBtn" disabled>停止播放</button>
+        </div>
+
+        <!-- 文件列表区 -->
+        <div class="file-container">
+            <div class="file-title">已加载 Opus 文件（共 <span id="fileCount">0</span> 个）</div>
+            <ul id="fileList">
+                <li>未选择文件夹</li>
+            </ul>
+        </div>
+
+        <!-- 状态显示区 -->
+        <div class="status-group">
+            <div class="status-item">播放状态：<span id="playStatus">未就绪</span></div>
+            <div class="status-item">解码进度：<span id="decodeProgress">0 / 0（文件）</span></div>
+            <div class="status-item">推送进度：<span id="pushProgress">0 / 0（音频段）</span></div>
+            <div class="status-item">缓存计数：<span id="cacheCount">0（等待播放）</span></div>
+            <div class="status-item">AudioWorklet 状态：<span id="workletStatus">未初始化</span></div>
+        </div>
+
+        <!-- 日志区 -->
+        <div class="file-title">运行日志</div>
+        <div class="log-container" id="logContainer"></div>
+
+        <div class="notice">
+            核心逻辑：读取 Opus 文件 → 解码为 24kHz S16LE 单声道 PCM → 推送3段后启动播放 → AudioWorklet 流式输出
+        </div>
+    </div>
+
+    <!-- 引入依赖库 -->
+    <script src="https://media.youyan.xyz/youling-lite-sdk/opus-decoder.min.js" charset="UTF-8"></script>
+
+    <script>
+        // ============================================
+        // 1. 日志工具（添加时间戳和类型区分）
+        // ============================================
+        const LogUtil = {
+            logContainer: document.getElementById('logContainer'),
+            info(message) {
+                this._addLog('info', message);
+            },
+            debug(message) {
+                this._addLog('debug', message);
+            },
+            error(message) {
+                this._addLog('error', message);
+            },
+            _addLog(type, message) {
+                console.log(`[${type.toUpperCase()}] ${message}`);
+            }
+        };
+
+        // ============================================
+        // 2. 模拟 ResourceManager 配置（适配外部调用逻辑）
+        // ============================================
+        const ResourceManager = {
+            config: {
+                raw_audio: true, // 启用 PCM 原始音频播放（必须为 true）
+            }
+        };
+
+        // ============================================
+        // 3. 复用 PCMAudioPlayer 类（从 AudioWorklet.ts 复制）
+        // ============================================
+        class PCMAudioPlayer {
+            SAMPLE_RATE = 24000;
+            FRAME_ALIGNMENT = 2000;
+            WORKLET_SCRIPT_URL = "https://media.youyan.xyz/youling-lite-sdk/pcm-audio-processor.js";
+
+            audioCtx = null;
+            audioWorkletNode = null;
+            isInitialized = false;
+            isPlaying = false;
+            destroyResolve = null;
+
+            async init() {
+                if (this.isInitialized) return;
+
+                const AudioContextConstructor = window.AudioContext || (window).webkitAudioContext;
+                if (!AudioContextConstructor || !window.AudioWorklet) {
+                    LogUtil.error("当前浏览器不支持Web Audio Worklet，无法实现流式播放");
+                    throw new Error("浏览器不支持 Web Audio Worklet");
+                }
+
+                this.audioCtx = new AudioContextConstructor({ sampleRate: this.SAMPLE_RATE });
+                const logger = { log: LogUtil.debug, error: LogUtil.error };
+
+                try {
+                    LogUtil.debug(`加载 Worklet 脚本: ${this.WORKLET_SCRIPT_URL}`);
+                    await this.audioCtx.audioWorklet.addModule(this.WORKLET_SCRIPT_URL);
+                    LogUtil.info("Worklet 脚本加载完成");
+
+                    this.audioWorkletNode = new AudioWorkletNode(this.audioCtx, "pcm-audio-processor");
+                    this.audioWorkletNode.connect(this.audioCtx.destination);
+                    LogUtil.info("Worklet 节点已连接到扬声器");
+
+                    this.audioWorkletNode.port.onmessage = (e) => {
+                        switch (e.data.type) {
+                            case "cacheStatus":
+                                LogUtil.debug(`Worklet 缓存状态: ${e.data.size} 字节`);
+                                break;
+                            case "error":
+                                LogUtil.error(`Worklet 错误: ${JSON.stringify(e.data.detail)}`);
+                                break;
+                            case "destroyConfirmed":
+                                LogUtil.debug("Worklet 已确认销毁");
+                                this.destroyResolve?.();
+                                break;
+                            case "syncVolume":
+                                if (this.audioWorkletNode?.parameters?.get("volume")?.value !== undefined) {
+                                    this.audioWorkletNode.parameters.get("volume").value = e.data.volume;
+                                }
+                                break;
+                            default:
+                                LogUtil.debug(`Worklet 消息: ${JSON.stringify(e.data)}`);
+                        }
+                    };
+
+                    this.isInitialized = true;
+                    LogUtil.info("PCMAudioPlayer 初始化完成（Worklet 就绪）");
+                    document.getElementById('workletStatus').textContent = "已就绪";
+                } catch (err) {
+                    LogUtil.error(`PCMAudioPlayer 初始化失败: ${err.message}`);
+                    throw err;
+                }
+            }
+
+            receivePCMStream(pcmData) {
+                const logger = { log: LogUtil.debug, error: LogUtil.error };
+
+                if (!this.isInitialized || !this.audioWorkletNode) {
+                    LogUtil.error("播放器未初始化，无法接收PCM数据");
+                    return;
+                }
+                if (!(pcmData instanceof Uint8Array)) {
+                    LogUtil.error("输入PCM数据必须是非空的Uint8Array");
+                    return;
+                }
+                LogUtil.debug(`接收 PCM 数据: ${pcmData.length} 字节`);
+
+                try {
+                    this.audioWorkletNode.port.postMessage(
+                        { type: "pcm", pcmData: pcmData },
+                        [pcmData.buffer]
+                    );
+                } catch (err) {
+                    LogUtil.error(`下发PCM数据到Worklet失败: ${err.message}`);
+                }
+            }
+
+            async start() {
+                if (!this.isInitialized || !this.audioCtx || !this.audioWorkletNode) {
+                    throw new Error("请先调用init()初始化播放器");
+                }
+
+                if (this.audioCtx.state !== "running") {
+                    await this.audioCtx.resume();
+                    LogUtil.debug("AudioContext 已恢复运行");
+                }
+
+                this.audioWorkletNode.port.postMessage({ type: "start" });
+                this.isPlaying = true;
+                LogUtil.info("已启动播放（Worklet 激活）");
+                document.getElementById('playStatus').textContent = "正在播放";
+            }
+
+            pause() {
+                if (!this.isInitialized || !this.audioWorkletNode) return;
+                this.audioWorkletNode.port.postMessage({ type: "pause" });
+                this.isPlaying = false;
+                LogUtil.info("已暂停播放");
+                document.getElementById('playStatus').textContent = "已暂停";
+            }
+
+            stop() {
+                if (!this.isInitialized || !this.audioWorkletNode) return;
+                this.audioWorkletNode.port.postMessage({ type: "stop" });
+                this.isPlaying = false;
+                LogUtil.info("已停止播放（Worklet 缓存清空）");
+                document.getElementById('playStatus').textContent = "已停止";
+            }
+
+            async destroy() {
+                const logger = { log: LogUtil.debug, error: LogUtil.error };
+
+                if (!this.isInitialized || !this.audioCtx || !this.audioWorkletNode) {
+                    return;
+                }
+
+                await new Promise((resolve) => {
+                    this.destroyResolve = resolve;
+                    this.audioWorkletNode?.port.postMessage({ type: "destroy" });
+                    const timeout = setTimeout(() => {
+                        LogUtil.warn("Worklet 销毁超时，强制释放资源");
+                        this.destroyResolve?.();
+                    }, 300);
+                    if (this.audioWorkletNode) {
+                        this.audioWorkletNode.port.onmessage = (e) => {
+                            if (e.data.type === "destroyConfirmed") {
+                                clearTimeout(timeout);
+                                this.destroyResolve?.();
+                            }
+                        };
+                    }
+                });
+
+                this.audioWorkletNode.disconnect();
+                this.audioWorkletNode.port.close();
+                this.audioWorkletNode = null;
+
+                if (this.audioCtx.state !== "closed") {
+                    await this.audioCtx.close();
+                }
+                this.audioCtx = null;
+                this.isInitialized = false;
+                this.isPlaying = false;
+                this.destroyResolve = null;
+                LogUtil.info("播放器已完全销毁，所有资源释放完成");
+            }
+
+            getStatus() {
+                return {
+                    isInitialized: this.isInitialized,
+                    isPlaying: this.isPlaying,
+                    isWorkletReady: !!this.audioWorkletNode,
+                };
+            }
+
+            setVolume(valume) {
+                if (this.isInitialized && this.audioWorkletNode) {
+                    this.audioWorkletNode.port.postMessage({ type: "volume", volume: valume });
+                }
+            }
+
+            async resume() {
+                try {
+                    if (this.audioCtx?.state === "suspended") {
+                        this.audioCtx.resume().then(() => {
+                            LogUtil.info("worklet音频上下文恢复成功");
+                            document.getElementById('playStatus').textContent = "正在播放";
+                        }).catch((error) => {
+                            LogUtil.error(`worklet音频上下文恢复失败: ${error.message}`);
+                        });
+                    }
+                } catch (err) {
+                    LogUtil.error(`worklet恢复播放失败: ${err.message}`);
+                    throw err;
+                }
+            }
+        }
+
+        // ============================================
+        // 4. 音频渲染器（模拟外部调用逻辑，包含 updateAudioData）
+        // ============================================
+        class AudioRender {
+            audio;
+            resourceManager;
+            firstFrameIndex = -1;
+            speech_id = -1;
+            oldSpeechId = -1;
+            cacheFirstFrameIndex = -1;
+            cacheAudioData = [];
+            pushCount = 0; // 记录推送的音频段数
+
+            constructor() {
+                this.resourceManager = ResourceManager;
+                this.audio = new PCMAudioPlayer();
+                this.init();
+            }
+
+            start() {
+                this.audio.start();
+            }
+
+            async init() {
+                try {
+                    LogUtil.info("初始化 AudioRender + PCMAudioPlayer");
+                    await this.audio.init();
+                } catch (err) {
+                    LogUtil.error(`AudioRender 初始化失败: ${err.message}`);
+                }
+            }
+
+            // 核心方法：接收音频列表，合并为PCM并推送（外部调用逻辑）
+            updateAudioData(audioList) {
+                // 校验配置和重复音频ID
+                if (!this.resourceManager.config.raw_audio || audioList[0].sid === this.oldSpeechId) {
+                    LogUtil.debug(`跳过推送：raw_audio=${this.resourceManager.config.raw_audio}，sid重复=${audioList[0].sid === this.oldSpeechId}`);
+                    return;
+                }
+
+                // 记录第一个帧索引
+                if (this.firstFrameIndex === -1) {
+                    this.firstFrameIndex = audioList[0].sf;
+                    LogUtil.debug(`记录第一个帧索引: ${this.firstFrameIndex}`);
+                }
+
+                // 合并音频数据（Uint8Array）- 修复越界问题
+                let totalLength = 0;
+                const audioBuffers = []; // 缓存转换后的 Uint8Array
+                for (const audio of audioList) {
+                    if (audio.ad) {
+                        const uint8Buffer = new Uint8Array(audio.ad);
+                        audioBuffers.push(uint8Buffer);
+                        totalLength += uint8Buffer.length; // 基于实际 Uint8Array 长度计算总长度
+                    }
+                }
+                const mergedData = new Uint8Array(totalLength);
+                let offset = 0;
+                for (const buffer of audioBuffers) {
+                    // 校验偏移量是否越界（防御性编程）
+                    if (offset + buffer.length > mergedData.length) {
+                        LogUtil.error(`合并音频越界：offset=${offset}，buffer长度=${buffer.length}，总长度=${mergedData.length}`);
+                        break;
+                    }
+                    mergedData.set(buffer, offset);
+                    offset += buffer.length;
+                }
+                // 校验合并结果
+                if (offset !== mergedData.length) {
+                    LogUtil.warn(`合并音频不完整：预期长度=${mergedData.length}，实际写入=${offset}字节`);
+                    // 截取有效部分（避免无效数据）
+                    mergedData = mergedData.subarray(0, offset);
+                }
+                LogUtil.debug(`合并音频数据：总长度=${mergedData.length}字节，sid=${audioList[0].sid}`);
+
+                // 推送逻辑：首次直接推，不同sid缓存，相同sid直接推
+                if (this.speech_id === -1) {
+                    this.speech_id = audioList[0].sid;
+                    this._pushPCMData(mergedData);
+                } else {
+                    if (this.speech_id !== audioList[0].sid) {
+                        // 不同sid，缓存数据
+                        if (this.cacheFirstFrameIndex === -1) {
+                            this.cacheFirstFrameIndex = audioList[0].sf;
+                        }
+                        this.cacheAudioData.push(mergedData);
+                        LogUtil.debug(`缓存音频数据：sid=${audioList[0].sid}，缓存计数=${this.cacheAudioData.length}`);
+                        document.getElementById('cacheCount').textContent = this.cacheAudioData.length;
+                    } else {
+                        // 相同sid，直接推送
+                        this._pushPCMData(mergedData);
+                    }
+                }
+            }
+
+            // 推送PCM数据到Worklet，满足3段后自动播放
+            _pushPCMData(pcmData) {
+                this.audio.receivePCMStream(pcmData);
+                this.pushCount++;
+                LogUtil.info(`推送 PCM 数据到 Worklet，累计推送=${this.pushCount}段`);
+                document.getElementById('pushProgress').textContent = `${this.pushCount} / 未知（音频段）`;
+            }
+
+            // 播放缓存的音频数据（切换sid时调用）
+            playCachedAudio() {
+                if (this.cacheAudioData.length === 0) {
+                    LogUtil.debug("无缓存音频数据可播放");
+                    return;
+                }
+                LogUtil.info(`开始播放缓存音频：共${this.cacheAudioData.length}段`);
+                this.cacheAudioData.forEach((pcmData, index) => {
+                    this.audio.receivePCMStream(pcmData);
+                    this.pushCount++;
+                    LogUtil.debug(`播放缓存段${index + 1}，长度=${pcmData.length}字节`);
+                    document.getElementById('pushProgress').textContent = `${this.pushCount} / 未知（音频段）`;
+                });
+                this.cacheAudioData = [];
+                this.cacheFirstFrameIndex = -1;
+                document.getElementById('cacheCount').textContent = 0;
+            }
+
+            // 停止播放并重置状态
+            stop(speech_id) {
+                this.audio.stop();
+                this.oldSpeechId = speech_id;
+                this.speech_id = -1;
+                this.firstFrameIndex = -1;
+                this.pushCount = 0;
+                document.getElementById('pushProgress').textContent = `0 / 0（音频段）`;
+                LogUtil.info(`停止播放，重置状态：oldSpeechId=${this.oldSpeechId}`);
+
+                // 播放缓存数据
+                this.playCachedAudio();
+            }
+        }
+
+        // ============================================
+        // 5. 核心业务逻辑（读取Opus文件 → 解码 → 推送）
+        // ============================================
+        class OpusToPCMPlayer {
+            opusDecoder;
+            audioRender;
+            opusFiles = [];
+            isDecoding = false;
+
+            constructor() {
+                this.audioRender = new AudioRender();
+                this.initOpusDecoder();
+                this.bindEvents();
+            }
+
+            // 初始化 Opus 解码器
+            async initOpusDecoder() {
+                try {
+                    LogUtil.info("初始化 Opus 解码器（24kHz 单声道）");
+                    this.opusDecoder = new window['opus-decoder'].OpusDecoder({
+                        sampleRate: 24000,
+                        channels: 1,
+                        forceStereo: false,
+                        preSkip: 0,
+                        streamCount: 1,
+                        coupledStreamCount: 0
+                    });
+                    await this.opusDecoder.ready;
+                    LogUtil.info("Opus 解码器初始化完成");
+                } catch (err) {
+                    LogUtil.error(`Opus 解码器初始化失败: ${err.message}`);
+                }
+            }
+
+            // 绑定 DOM 事件
+            bindEvents() {
+                document.getElementById('selectBtn').addEventListener('click', () => {
+                    document.getElementById('fileInput').click();
+                });
+
+                document.getElementById('fileInput').addEventListener('change', (e) => {
+                    this.handleFolderSelect(e);
+                });
+
+                document.getElementById('startBtn').addEventListener('click', () => {
+                    this.startPlay();
+                });
+
+                document.getElementById('playBtn').addEventListener('click', () => {
+                    this.playAudio();
+                });
+
+                document.getElementById('stopBtn').addEventListener('click', () => {
+                    this.stopPlay();
+                });
+            }
+
+            playAudio(){
+                this.audioRender.start();
+            }
+
+            // 处理文件夹选择
+            handleFolderSelect(e) {
+                const files = Array.from((e.target).files || []).filter(file => file.name.endsWith('.opus'));
+                if (files.length === 0) {
+                    LogUtil.error("未找到 .opus 格式文件，请选择正确的文件夹");
+                    alert("未找到 .opus 格式文件，请选择正确的文件夹");
+                    return;
+                }
+
+                this.opusFiles = files;
+                this.updateFileList();
+                LogUtil.info(`选择 Opus 文件夹：共${files.length}个文件`);
+                document.getElementById('startBtn').disabled = false;
+            }
+
+            // 更新文件列表UI
+            updateFileList() {
+                const fileListEl = document.getElementById('fileList');
+                const fileCountEl = document.getElementById('fileCount');
+                fileListEl.innerHTML = '';
+                this.opusFiles.forEach((file, index) => {
+                    const li = document.createElement('li');
+                    li.textContent = `${index + 1}. ${file.name}（${(file.size / 1024).toFixed(1)}KB）`;
+                    fileListEl.appendChild(li);
+                });
+                fileCountEl.textContent = this.opusFiles.length.toString();
+            }
+
+            // 开始播放：读取Opus → 解码 → 推送updateAudioData
+            async startPlay() {
+                if (this.isDecoding) {
+                    LogUtil.warn("正在解码中，请勿重复启动");
+                    return;
+                }
+                if (this.opusFiles.length === 0) {
+                    LogUtil.error("无Opus文件可播放");
+                    return;
+                }
+
+                this.isDecoding = true;
+                document.getElementById('playStatus').textContent = "解码中";
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+
+                try {
+                    for (let i = 0; i < this.opusFiles.length; i++) {
+                        const file = this.opusFiles[i];
+                        LogUtil.info(`开始处理第 ${i + 1}/${this.opusFiles.length} 个文件：${file.name}`);
+                        document.getElementById('decodeProgress').textContent = `${i + 1} / ${this.opusFiles.length}（文件）`;
+
+                        // 读取Opus文件
+                        const opusData = await this.readFileAsUint8Array(file);
+
+                        // Opus解码为PCM（24kHz S16LE 单声道）
+                        const pcmData = await this.decodeOpusToPCM(opusData);
+
+                        // 构造 audioList 格式（适配 updateAudioData 入参）
+                        const audioList = [
+                            {
+                                ad: pcmData.buffer, // 注意：这里传入ArrayBuffer（外部逻辑会转为Uint8Array）
+                                sid: 1, // 用文件索引作为sid，确保不同文件sid不同
+                                sf: i * 24, // 模拟帧索引（每文件24帧）
+                            }
+                        ];
+
+                        // 推送数据到 updateAudioData
+                        this.audioRender.updateAudioData(audioList);
+
+                        // 模拟流式延迟（可选，模拟真实网络下发）
+                        // await new Promise(resolve => setTimeout(resolve, 0));
+                    }
+
+                    LogUtil.info("所有Opus文件处理完成");
+                    document.getElementById('decodeProgress').textContent = `${this.opusFiles.length} / ${this.opusFiles.length}（文件）`;
+                } catch (err) {
+                    LogUtil.error(`播放过程出错: ${err.message}`);
+                } finally {
+                    this.isDecoding = false;
+                }
+            }
+
+            // 停止播放
+            stopPlay() {
+                this.isDecoding = false;
+                this.audioRender.stop(-1);
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                document.getElementById('playStatus').textContent = "已停止";
+            }
+
+            // 读取文件为Uint8Array
+            readFileAsUint8Array(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        resolve(new Uint8Array(e.target?.result));
+                    };
+                    reader.onerror = (err) => {
+                        reject(new Error(`读取文件失败: ${err.message}`));
+                    };
+                    reader.readAsArrayBuffer(file);
+                });
+            }
+
+            // Opus解码为PCM（24kHz S16LE 单声道）
+            // Opus解码为PCM（24kHz S16LE 单声道）
+            async decodeOpusToPCM(opusData) {
+                try {
+                    LogUtil.debug(`解码Opus数据：长度=${opusData.length}字节（跳过手动拆帧，直接解码整段）`);
+
+                    // 关键修复：直接解码整个Opus数据（解码器自动处理帧拆分）
+                    const decodeResult = this.opusDecoder.decodeFrames([opusData]);
+
+                    // 处理解码错误
+                    if (decodeResult?.errors?.length > 0) {
+                        LogUtil.warn(`解码警告: ${decodeResult.errors[0].message}`);
+                        // 若仍报错，说明文件是Ogg容器封装，需后续适配
+                        if (decodeResult.errors[0].message.includes('OPUS_INVALID_PACKET')) {
+                            throw new Error(`Opus文件格式错误：可能是Ogg容器封装（需用ogg-opus-decoder）`);
+                        }
+                    }
+
+                    // 单声道取第一个通道的PCM数据（确保非空）
+                    const pcmFloat32 = decodeResult.channelData[0];
+                    if (pcmFloat32.length === 0) {
+                        throw new Error("解码后无有效PCM数据");
+                    }
+                    LogUtil.debug(`Opus解码完成：PCM样本数=${pcmFloat32.length}（S16LE 单声道）`);
+
+                    // Float32（-1~1）转换为 S16LE 小端序（修复符号位处理）
+                    const pcmS16LE = new Uint8Array(pcmFloat32.length * 2); // 每个S16占2字节
+                    for (let i = 0; i < pcmFloat32.length; i++) {
+                        const sample = Math.max(-1, Math.min(1, pcmFloat32[i])); // 限制范围避免溢出
+                        const s16 = Math.round(sample * 32767); // 转换为16位有符号整数（-32768~32767）
+                        // 正确处理正负样本的小端字节序
+                        pcmS16LE[i * 2] = s16 & 0xFF; // 低字节（强制无符号）
+                        pcmS16LE[i * 2 + 1] = (s16 >> 8) & 0xFF; // 高字节（处理符号位）
+                    }
+
+                    return pcmS16LE;
+                } catch (err) {
+                    LogUtil.error(`Opus解码失败: ${err.message}`);
+                    throw err;
+                }
+            }
+
+        }
+
+        // ============================================
+        // 6. 初始化播放器
+        // ============================================
+        window.addEventListener('load', () => {
+            LogUtil.info("页面加载完成，初始化 OpusToPCMPlayer");
+            new OpusToPCMPlayer();
+        });
+    </script>
+</body>
+
+</html>

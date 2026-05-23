@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>裸 Opus 流 → MP3 转换器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft YaHei", Arial, sans-serif;
+        }
+
+        body {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            background: #f8f9fa;
+        }
+
+        .container {
+            background: #fff;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        h1 {
+            color: #2d3748;
+            font-size: 1.8rem;
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        .control-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        button {
+            padding: 0.7rem 1.4rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        #selectBtn {
+            background: #4299e1;
+            color: #fff;
+        }
+
+        #convertBtn {
+            background: #9f7aea;
+            color: #fff;
+        }
+
+        #cancelBtn {
+            background: #e53e3e;
+            color: #fff;
+        }
+
+        #downloadBtn {
+            background: #48bb78;
+            color: #fff;
+            display: none;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .file-container {
+            margin: 1.5rem 0;
+            padding: 1rem;
+            border: 1px dashed #dee2e6;
+            border-radius: 8px;
+        }
+
+        .file-title {
+            color: #4a5568;
+            font-size: 1.1rem;
+            margin-bottom: 0.8rem;
+        }
+
+        #fileList {
+            list-style: none;
+            max-height: 180px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+
+        #fileList li {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #f0f0f0;
+            color: #718096;
+        }
+
+        #fileList li:last-child {
+            border-bottom: none;
+        }
+
+        .status-group {
+            margin: 1.5rem 0;
+            padding: 1.2rem;
+            background: #f7fafc;
+            border-radius: 8px;
+        }
+
+        .status-item {
+            margin: 0.6rem 0;
+            color: #4a5568;
+            font-size: 0.95rem;
+        }
+
+        .status-item span {
+            color: #2d3748;
+            font-weight: 500;
+        }
+
+        .progress-container {
+            margin: 1.5rem 0;
+            width: 100%;
+            height: 8px;
+            background: #e2e8f0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        #progressBar {
+            height: 100%;
+            width: 0%;
+            background: #4299e1;
+            transition: width 0.3s ease;
+        }
+
+        .log-container {
+            margin: 1.5rem 0;
+            padding: 1rem;
+            background: #2d3748;
+            color: #e2e8f0;
+            border-radius: 8px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        .log-item {
+            margin: 0.3rem 0;
+            line-height: 1.5;
+        }
+
+        .log-time {
+            color: #9f7aea;
+        }
+
+        .log-info {
+            color: #48bb78;
+        }
+
+        .log-error {
+            color: #e53e3e;
+        }
+
+        .notice {
+            color: #9f7aea;
+            font-size: 0.9rem;
+            margin-top: 1rem;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>裸 Opus 流 → 完整 MP3 文件转换器</h1>
+
+        <!-- 控制按钮区 -->
+        <div class="control-group">
+            <input type="file" id="fileInput" webkitdirectory directory accept=".opus" style="display: none;">
+            <button id="selectBtn">选择裸 Opus 文件夹</button>
+            <button id="convertBtn" disabled>开始转换（Opus → MP3）</button>
+            <button id="cancelBtn" disabled>取消转换</button>
+            <button id="downloadBtn">下载 MP3 文件</button>
+        </div>
+
+        <!-- 文件列表区 -->
+        <div class="file-container">
+            <div class="file-title">已加载裸 Opus 文件（共 <span id="fileCount">0</span> 个）</div>
+            <ul id="fileList">
+                <li>未选择文件夹</li>
+            </ul>
+        </div>
+
+        <!-- 进度条 -->
+        <div class="progress-container">
+            <div id="progressBar"></div>
+        </div>
+
+        <!-- 状态显示区 -->
+        <div class="status-group">
+            <div class="status-item">转换状态：<span id="convertStatus">未就绪</span></div>
+            <div class="status-item">处理进度：<span id="processProgress">0 / 0（文件）</span></div>
+            <div class="status-item">当前进度：<span id="currentProgress">0%</span></div>
+            <div class="status-item">输出 MP3 信息：<span id="mp3Info">无</span></div>
+        </div>
+
+        <!-- 日志区 -->
+        <div class="file-title">运行日志</div>
+        <div class="log-container" id="logContainer"></div>
+
+        <div class="notice">
+            核心逻辑：裸 Opus 流 → 解码为 24kHz PCM → 编码为 128kbps MP3 → 合并为完整文件 | 支持批量转换
+        </div>
+    </div>
+
+    <!-- 引入依赖库：裸 Opus 解码器 + LAME MP3 编码器 -->
+    <script src="https://media.youyan.xyz/youling-lite-sdk/opus-decoder.min.js" charset="UTF-8"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/lamejs/1.2.1/lame.min.js" charset="UTF-8"></script>
+
+    <script>
+        // ============================================
+        // 1. 日志工具
+        // ============================================
+        const LogUtil = {
+            logContainer: document.getElementById('logContainer'),
+            _formatTime() {
+                return new Date().toLocaleTimeString('zh-CN', { hour12: false, fractionalSecondDigits: 3 });
+            },
+            info(message) {
+                this._addLog('info', message);
+            },
+            debug(message) {
+                this._addLog('debug', message);
+            },
+            error(message) {
+                this._addLog('error', message);
+            },
+            _addLog(type, message) {
+                const time = this._formatTime();
+                const logStr = `[${time}] [${type.toUpperCase()}] ${message}`;
+                console.log(logStr);
+                const logItem = document.createElement('div');
+                logItem.className = `log-item log-${type}`;
+                logItem.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-${type}">[${type.toUpperCase()}]</span> ${message}`;
+                this.logContainer.appendChild(logItem);
+                this.logContainer.scrollTop = this.logContainer.scrollHeight;
+            }
+        };
+
+        // ============================================
+        // 2. MP3 编码器初始化（基于 lamejs）
+        // ============================================
+        class MP3Encoder {
+            constructor() {
+                // 配置：24kHz 单声道 → 128kbps MP3（主流兼容参数）
+                this.sampleRate = 24000; // 与 Opus 解码输出一致
+                this.channels = 1; // 单声道（匹配裸 Opus 解码结果）
+                this.bitRate = 128; // MP3 比特率（128kbps 平衡音质和体积）
+                this.encoder = null;
+                this.mp3Data = []; // 存储编码后的 MP3 数据
+            }
+
+            // 初始化编码器
+            init() {
+                try {
+                    LogUtil.debug(`初始化 MP3 编码器（采样率：${this.sampleRate}Hz，声道：${this.channels}，比特率：${this.bitRate}kbps）`);
+                    // 初始化 lamejs 编码器
+                    this.encoder = new lamejs.Mp3Encoder(this.channels, this.sampleRate, this.bitRate);
+                    // 重置 MP3 数据缓存
+                    this.mp3Data = [];
+                    LogUtil.info("MP3 编码器初始化完成");
+                    return true;
+                } catch (err) {
+                    LogUtil.error(`MP3 编码器初始化失败: ${err.message}`);
+                    return false;
+                }
+            }
+
+            // 编码 PCM 数据（接收 Float32 格式 PCM，范围 -1~1）
+            encodePCM(pcmFloat32) {
+                if (!this.encoder) {
+                    LogUtil.error("MP3 编码器未初始化");
+                    return false;
+                }
+
+                try {
+                    // 步骤1：Float32 (-1~1) → Int16（lamejs 要求输入为 16 位整数 PCM）
+                    const pcmInt16 = new Int16Array(pcmFloat32.length);
+                    for (let i = 0; i < pcmFloat32.length; i++) {
+                        const sample = Math.max(-1, Math.min(1, pcmFloat32[i])); // 限制范围避免溢出
+                        pcmInt16[i] = Math.round(sample * 32767); // 转换为 16 位有符号整数
+                    }
+
+                    // 步骤2：分块编码（lamejs 单次编码上限为 1152 样本）
+                    const blockSize = 1152;
+                    for (let i = 0; i < pcmInt16.length; i += blockSize) {
+                        const block = pcmInt16.subarray(i, Math.min(i + blockSize, pcmInt16.length));
+                        const mp3Block = this.encoder.encodeBuffer(block); // 编码单块
+                        if (mp3Block.length > 0) {
+                            this.mp3Data.push(mp3Block);
+                        }
+                    }
+
+                    LogUtil.debug(`编码 PCM 数据：${pcmFloat32.length} 样本 → MP3 数据已缓存`);
+                    return true;
+                } catch (err) {
+                    LogUtil.error(`MP3 编码失败: ${err.message}`);
+                    return false;
+                }
+            }
+
+            // 完成编码（写入 MP3 结尾帧）
+            finishEncoding() {
+                if (!this.encoder) return null;
+                try {
+                    // 写入 MP3 结尾帧（必须调用，否则文件不完整）
+                    const endFrame = this.encoder.flush();
+                    if (endFrame.length > 0) {
+                        this.mp3Data.push(endFrame);
+                    }
+
+                    // 合并所有 MP3 数据为 Uint8Array
+                    const totalLength = this.mp3Data.reduce((sum, block) => sum + block.length, 0);
+                    const mp3File = new Uint8Array(totalLength);
+                    let offset = 0;
+                    for (const block of this.mp3Data) {
+                        mp3File.set(block, offset);
+                        offset += block.length;
+                    }
+
+                    LogUtil.info(`MP3 编码完成，总大小：${(mp3File.length / 1024 / 1024).toFixed(2)}MB`);
+                    return mp3File;
+                } catch (err) {
+                    LogUtil.error(`MP3 编码收尾失败: ${err.message}`);
+                    return null;
+                }
+            }
+
+            // 重置编码器
+            reset() {
+                this.init();
+            }
+        }
+
+        // ============================================
+        // 3. 核心转换器（裸 Opus → PCM → MP3）
+        // ============================================
+        class OpusToMp3Converter {
+            constructor() {
+                // 初始化组件
+                this.opusDecoder = null; // 裸 Opus 解码器
+                this.mp3Encoder = new MP3Encoder(); // MP3 编码器
+                this.opusFiles = []; // 待转换的裸 Opus 文件列表
+                this.isConverting = false; // 转换状态
+                this.totalFiles = 0; // 总文件数
+                this.processedFiles = 0; // 已处理文件数
+                this.mp3File = null; // 最终 MP3 文件数据
+
+                // 绑定 DOM 事件
+                this.bindEvents();
+                // 初始化 Opus 解码器
+                this.initOpusDecoder();
+                // 初始化 MP3 编码器
+                this.mp3Encoder.init();
+            }
+
+            // 初始化裸 Opus 解码器
+            async initOpusDecoder() {
+                try {
+                    LogUtil.info("初始化裸 Opus 解码器（24kHz 单声道）");
+                    this.opusDecoder = new window['opus-decoder'].OpusDecoder({
+                        sampleRate: 24000,
+                        channels: 1,
+                        forceStereo: false,
+                        preSkip: 0,
+                        streamCount: 1,
+                        coupledStreamCount: 0
+                    });
+                    await this.opusDecoder.ready;
+                    LogUtil.info("裸 Opus 解码器初始化完成");
+                } catch (err) {
+                    LogUtil.error(`Opus 解码器初始化失败: ${err.message}`);
+                    this.opusDecoder = null;
+                }
+            }
+
+            // 绑定 DOM 事件
+            bindEvents() {
+                // 选择文件夹
+                document.getElementById('selectBtn').addEventListener('click', () => {
+                    document.getElementById('fileInput').click();
+                });
+
+                // 选择文件后回调
+                document.getElementById('fileInput').addEventListener('change', (e) => {
+                    this.handleFolderSelect(e);
+                });
+
+                // 开始转换
+                document.getElementById('convertBtn').addEventListener('click', () => {
+                    this.startConvert();
+                });
+
+                // 取消转换
+                document.getElementById('cancelBtn').addEventListener('click', () => {
+                    this.cancelConvert();
+                });
+
+                // 下载 MP3
+                document.getElementById('downloadBtn').addEventListener('click', () => {
+                    this.downloadMp3();
+                });
+            }
+
+            // 处理文件夹选择
+            handleFolderSelect(e) {
+                const files = Array.from(e.target.files || []).filter(file => file.name.endsWith('.opus'));
+                if (files.length === 0) {
+                    LogUtil.error("未找到 .opus 格式文件，请选择正确的文件夹");
+                    alert("未找到 .opus 格式文件，请选择正确的文件夹");
+                    return;
+                }
+
+                this.opusFiles = files;
+                this.totalFiles = files.length;
+                this.updateFileList();
+                document.getElementById('convertBtn').disabled = false;
+                LogUtil.info(`选择裸 Opus 文件夹：共 ${this.totalFiles} 个文件`);
+            }
+
+            // 更新文件列表 UI
+            updateFileList() {
+                const fileListEl = document.getElementById('fileList');
+                const fileCountEl = document.getElementById('fileCount');
+                fileListEl.innerHTML = '';
+
+                this.opusFiles.forEach((file, index) => {
+                    const li = document.createElement('li');
+                    li.textContent = `${index + 1}. ${file.name}（${(file.size / 1024).toFixed(1)}KB）`;
+                    fileListEl.appendChild(li);
+                });
+
+                fileCountEl.textContent = this.totalFiles.toString();
+            }
+
+            // 开始转换（核心流程）
+            async startConvert() {
+                if (this.isConverting) {
+                    LogUtil.warn("正在转换中，请勿重复启动");
+                    return;
+                }
+                if (this.opusFiles.length === 0) {
+                    LogUtil.error("无待转换的 Opus 文件");
+                    return;
+                }
+                if (!this.opusDecoder || !this.mp3Encoder.encoder) {
+                    LogUtil.error("解码器/编码器未初始化完成");
+                    return;
+                }
+
+                // 初始化转换状态
+                this.isConverting = true;
+                this.processedFiles = 0;
+                this.mp3File = null;
+                this.mp3Encoder.reset(); // 重置 MP3 编码器
+                this.updateUI();
+
+                LogUtil.info("开始转换：裸 Opus 流 → MP3 文件");
+                document.getElementById('convertStatus').textContent = "转换中...";
+
+                try {
+                    // 批量处理每个裸 Opus 文件
+                    for (let i = 0; i < this.opusFiles.length && this.isConverting; i++) {
+                        const file = this.opusFiles[i];
+                        this.updateProgress(i + 1);
+                        LogUtil.info(`开始处理第 ${i + 1}/${this.totalFiles} 个文件：${file.name}`);
+
+                        // 步骤1：读取裸 Opus 文件
+                        const opusData = await this.readFileAsUint8Array(file);
+                        if (!opusData) {
+                            LogUtil.error(`跳过文件 ${file.name}：读取失败`);
+                            continue;
+                        }
+
+                        // 步骤2：裸 Opus 解码为 PCM（Float32，-1~1）
+                        const pcmData = await this.decodeOpusToPCM(opusData);
+                        if (!pcmData) {
+                            LogUtil.error(`跳过文件 ${file.name}：解码失败`);
+                            continue;
+                        }
+
+                        // 步骤3：PCM 编码为 MP3
+                        const encodeSuccess = this.mp3Encoder.encodePCM(pcmData);
+                        if (!encodeSuccess) {
+                            LogUtil.error(`跳过文件 ${file.name}：MP3 编码失败`);
+                            continue;
+                        }
+
+                        this.processedFiles++;
+                        LogUtil.info(`完成第 ${i + 1}/${this.totalFiles} 个文件处理`);
+                    }
+
+                    // 步骤4：完成 MP3 编码（写入结尾帧）
+                    if (this.isConverting) {
+                        this.mp3File = this.mp3Encoder.finishEncoding();
+                        if (this.mp3File) {
+                            LogUtil.info(`所有文件转换完成！最终 MP3 大小：${(this.mp3File.length / 1024 / 1024).toFixed(2)}MB`);
+                            document.getElementById('convertStatus').textContent = "转换完成";
+                            document.getElementById('mp3Info').textContent = `24kHz 单声道，128kbps，${(this.mp3File.length / 1024 / 1024).toFixed(2)}MB`;
+                            document.getElementById('downloadBtn').style.display = 'inline-block';
+                        } else {
+                            document.getElementById('convertStatus').textContent = "转换失败（MP3 生成失败）";
+                        }
+                    }
+                } catch (err) {
+                    LogUtil.error(`转换过程异常: ${err.message}`);
+                    document.getElementById('convertStatus').textContent = "转换异常";
+                } finally {
+                    this.isConverting = false;
+                    this.updateUI();
+                }
+            }
+
+            // 取消转换
+            cancelConvert() {
+                if (!this.isConverting) return;
+                this.isConverting = false;
+                LogUtil.info("已取消转换");
+                document.getElementById('convertStatus').textContent = "已取消";
+                this.updateUI();
+            }
+
+            // 下载 MP3 文件
+            downloadMp3() {
+                if (!this.mp3File) {
+                    LogUtil.error("无可用 MP3 文件");
+                    return;
+                }
+
+                // 创建 Blob 并生成下载链接
+                const blob = new Blob([this.mp3File], { type: 'audio/mpeg' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `opus_converted_${new Date().getTime()}.mp3`; // 文件名含时间戳
+                document.body.appendChild(a);
+                a.click();
+
+                // 释放资源
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 100);
+
+                LogUtil.info("MP3 文件下载已触发");
+            }
+
+            // 读取文件为 Uint8Array
+            readFileAsUint8Array(file) {
+                return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        resolve(new Uint8Array(e.target?.result));
+                    };
+                    reader.onerror = () => {
+                        LogUtil.error(`读取文件 ${file.name} 失败`);
+                        resolve(null);
+                    };
+                    reader.readAsArrayBuffer(file);
+                });
+            }
+
+            // 裸 Opus 解码为 PCM（Float32 格式，-1~1 范围）
+            async decodeOpusToPCM(opusData) {
+                try {
+                    LogUtil.debug(`解码 Opus 数据：长度=${opusData.length}字节`);
+
+                    // 解码裸 Opus 帧（decodeFrames 接收裸帧数组）
+                    const decodeResult = this.opusDecoder.decodeFrames([opusData]);
+
+                    // 处理解码错误
+                    if (decodeResult?.errors?.length > 0) {
+                        LogUtil.warn(`解码警告: ${decodeResult.errors[0].message}`);
+                        if (decodeResult.errors[0].message.includes('OPUS_INVALID_PACKET')) {
+                            LogUtil.error("该文件可能是 Ogg 容器封装，非裸 Opus 流");
+                            return null;
+                        }
+                    }
+
+                    // 提取单声道 PCM 数据（Float32）
+                    const pcmFloat32 = decodeResult.channelData[0];
+                    if (!pcmFloat32 || pcmFloat32.length === 0) {
+                        LogUtil.error("解码后无有效 PCM 数据");
+                        return null;
+                    }
+
+                    LogUtil.debug(`Opus 解码完成：PCM 样本数=${pcmFloat32.length}`);
+                    return pcmFloat32;
+                } catch (err) {
+                    LogUtil.error(`Opus 解码失败: ${err.message}`);
+                    return null;
+                }
+            }
+
+            // 更新进度条和 UI 状态
+            updateProgress(currentFileIndex) {
+                const progress = (currentFileIndex / this.totalFiles) * 100;
+                document.getElementById('progressBar').style.width = `${progress}%`;
+                document.getElementById('processProgress').textContent = `${currentFileIndex} / ${this.totalFiles}（文件）`;
+                document.getElementById('currentProgress').textContent = `${progress.toFixed(1)}%`;
+            }
+
+            // 更新 UI 按钮状态
+            updateUI() {
+                document.getElementById('convertBtn').disabled = this.isConverting || this.opusFiles.length === 0;
+                document.getElementById('cancelBtn').disabled = !this.isConverting;
+            }
+        }
+
+        // ============================================
+        // 4. 初始化转换器
+        // ============================================
+        window.addEventListener('load', () => {
+            LogUtil.info("页面加载完成，初始化 Opus → MP3 转换器");
+            new OpusToMp3Converter();
+        });
+    </script>
+</body>
+
+</html>

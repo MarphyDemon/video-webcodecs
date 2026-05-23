@@ -1,0 +1,24 @@
+<!-- 
+1. 视频地址 oss地址例如： https://media.youyan.xyz/youling-lite-sdk/videos/lvshi_idle_youling01.mp4
+2. 获取的对应帧的逻辑 需要使用解帧逻辑 
+3. 获取对应帧后webgl渲染 需要使用webgl渲染人物+alpha层合成
+4. 在合成结果渲染到canvas的同时，需要根据offset，对canvas进行偏移,需要研究下是否会先渲染到canvas，再根据offset进行偏移
+-->
+<!-- 是否可以直接在sdk内部实现上述逻辑，依赖过深。sdk内部模拟服务下发身体数据。 -->
+[
+    {
+        "id": 1,
+        "s": "interactive_idle",
+        "sf": 0,
+        "ef": 24,
+        "asf": 0,
+        "aef": 24,
+        "n": "lvshi_idle_youling01",
+        "hfd": false,
+        "body_id": 1,
+        "offset_list": [
+        <!-- 取24个偏移量 -->
+         0,1,1,1,1,1,2,2,2
+        ]
+    }
+]

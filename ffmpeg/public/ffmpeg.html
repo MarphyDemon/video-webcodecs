@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FFmpeg 视频帧解码器（无音频优化）</title>
+  
+  <style>
+    /* 基础样式重置 */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+    
+    body {
+      background-color: #f9fafb;
+      color: #1e293b;
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 16px;
+    }
+    
+    /* 头部样式 */
+    header {
+      background-color: white;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 16px 0;
+    }
+    
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .logo h1 {
+      font-size: 20px;
+      font-weight: bold;
+      color: #3b82f6;
+    }
+    
+    .header-info {
+      font-size: 14px;
+      color: #64748b;
+    }
+    
+    /* 主内容区 */
+    main {
+      padding: 32px 0;
+    }
+    
+    section {
+      margin-bottom: 40px;
+    }
+    
+    .card {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      padding: 24px;
+    }
+    
+    h2 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    /* 输入区域 */
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    
+    @media (min-width: 768px) {
+      .input-group {
+        flex-direction: row;
+      }
+    }
+    
+    input[type="text"] {
+      flex: 1;
+      padding: 12px 16px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 16px;
+      transition: all 0.2s;
+    }
+    
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+    
+    button {
+      background-color: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    
+    button:hover {
+      background-color: #2563eb;
+    }
+    
+    .help-text {
+      margin-top: 12px;
+      font-size: 14px;
+      color: #64748b;
+    }
+    
+    /* 性能选项 */
+    .performance-options {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #e2e8f0;
+    }
+    
+    .option-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    
+    .option-group label {
+      font-size: 14px;
+      color: #334155;
+    }
+    
+    .option-group input {
+      width: auto;
+    }
+    
+    select {
+      padding: 8px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    
+    /* 状态和进度 */
+    .progress-container {
+      width: 100%;
+      background-color: #e2e8f0;
+      border-radius: 4px;
+      height: 10px;
+      margin: 8px 0;
+    }
+    
+    .progress-bar {
+      height: 100%;
+      background-color: #3b82f6;
+      border-radius: 4px;
+      width: 0%;
+      transition: width 0.3s;
+    }
+    
+    .progress-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      color: #64748b;
+    }
+    
+    .status-message {
+      margin-bottom: 16px;
+      color: #334155;
+    }
+    
+    /* 结果展示区 */
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    
+    .result-stats {
+      font-size: 14px;
+      color: #64748b;
+    }
+    
+    .result-stats strong {
+      color: #3b82f6;
+    }
+    
+    .clear-btn {
+      background: none;
+      color: #64748b;
+      padding: 4px 8px;
+      font-size: 14px;
+    }
+    
+    .clear-btn:hover {
+      background: none;
+      color: #ef4444;
+    }
+    
+    .frame-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+    }
+    
+    .frame-item {
+      background-color: #f1f5f9;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      transition: box-shadow 0.2s;
+    }
+    
+    .frame-item:hover {
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    
+    .frame-item img {
+      width: 100%;
+      height: auto;
+      object-fit: cover;
+    }
+    
+    .frame-caption {
+      padding: 8px;
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+    }
+    
+    /* 信息提示 */
+    .info-box {
+      background-color: #eff6ff;
+      border-left: 4px solid #3b82f6;
+      padding: 16px;
+      border-radius: 4px;
+    }
+    
+    .info-content {
+      display: flex;
+      gap: 12px;
+    }
+    
+    .info-text {
+      flex: 1;
+      font-size: 14px;
+      color: #1e40af;
+    }
+    
+    /* 错误信息 */
+    .error-box {
+      background-color: #fee2e2;
+      border-left: 4px solid #ef4444;
+      padding: 16px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+    }
+    
+    .error-content {
+      display: flex;
+      gap: 12px;
+    }
+    
+    .error-text {
+      flex: 1;
+      font-size: 14px;
+      color: #b91c1c;
+    }
+    
+    .error-help {
+      margin-top: 16px;
+      background-color: #fee2e2;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      border: 1px solid #fecaca;
+    }
+    
+    /* 页脚 */
+    footer {
+      background-color: #1e293b;
+      color: white;
+      padding: 24px 0;
+      margin-top: auto;
+    }
+    
+    .footer-content {
+      text-align: center;
+      font-size: 14px;
+    }
+    
+    /* 隐藏/显示元素 */
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- 顶部导航 -->
+  <header>
+    <div class="container header-content">
+      <div class="logo">
+        <h1>视频帧解码器</h1>
+      </div>
+      <div class="header-info">
+        针对无音频视频优化
+      </div>
+    </div>
+  </header>
+
+  <!-- 主内容区 -->
+  <main class="container">
+    <!-- 输入区域 -->
+    <section>
+      <div class="card">
+        <h2>输入视频 URL</h2>
+        <div class="input-group">
+          <input 
+            type="text" 
+            id="videoUrl" 
+            placeholder="例如: https://example.com/video.mp4" 
+            value="https://public-xmov.oss-cn-hangzhou.aliyuncs.com/avatar_sdk_prod/body_ani/M_CN03_show02/look/zhiming02_12367_new/interact02_cut_003.mp4"
+          >
+          <button id="decodeBtn">
+            <span>解码视频</span>
+          </button>
+        </div>
+        <p class="help-text">
+          支持 MP4 格式视频，解码时间取决于视频长度和浏览器性能
+        </p>
+        
+        <!-- 性能优化选项 -->
+        <div class="performance-options">
+          <h3>性能选项</h3>
+          <div class="option-group">
+            <label for="frameRate">每秒提取帧数:</label>
+            <select id="frameRate">
+              <option value="1">1 帧/秒</option>
+              <option value="5">5 帧/秒</option>
+              <option value="10">10 帧/秒</option>
+              <option value="24" selected>24 帧/秒</option>
+              <option value="30">30 帧/秒</option>
+            </select>
+          </div>
+          <div class="option-group">
+            <label for="imageFormat">输出图像格式:</label>
+            <select id="imageFormat">
+              <option value="jpg">JPEG</option>
+              <option value="png" selected>PNG</option>
+            </select>
+          </div>
+          <div class="option-group">
+            <label for="disableAudio">
+              <input type="checkbox" id="disableAudio" checked> 禁用音频处理 (推荐无音频视频)
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 状态和进度 -->
+    <section id="statusSection" class="hidden">
+      <div class="card">
+        <h2>处理中</h2>
+        <div id="statusMessage" class="status-message">
+          正在加载 FFmpeg 库...
+        </div>
+        <div class="progress-container">
+          <div id="progressBar" class="progress-bar"></div>
+        </div>
+        <div class="progress-info">
+          <span id="progressText">0%</span>
+          <span id="frameCount">已提取: 0 帧</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 错误信息 -->
+    <section id="errorSection" class="hidden">
+      <div class="error-box">
+        <div class="error-content">
+          <div class="error-text">
+            <p id="errorMessage"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 结果展示区 -->
+    <section id="resultSection" class="hidden">
+      <div class="card">
+        <h2>解码后的视频帧</h2>
+        <div class="result-header">
+          <p class="result-stats">
+            共 <span id="totalFrames" class="strong">0</span> 帧
+          </p>
+          <div>
+            <button id="clearBtn" class="clear-btn">
+              清空结果
+            </button>
+          </div>
+        </div>
+        <div id="framesContainer" class="frame-grid">
+          <!-- 视频帧将在这里动态添加 -->
+        </div>
+      </div>
+    </section>
+
+    <!-- 信息提示 -->
+    <section>
+      <div class="info-box">
+        <div class="info-content">
+          <div class="info-text">
+            <p>
+              提示: 对于无音频视频，禁用音频处理可提升30-50%处理速度。首次使用会加载FFmpeg库，可能需要几秒钟时间。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 页脚 -->
+  <footer>
+    <div class="container footer-content">
+      <p>使用 FFmpeg.js 在浏览器中解码视频帧 &copy; 2023</p>
+    </div>
+  </footer>
+
+  <!-- 加载 FFmpeg.js -->
+  <script src="http://localhost:3000/ffmpeg.min.js"></script>
+  
+  <script>
+    // 初始化 FFmpeg 实例
+    const { createFFmpeg } = FFmpeg;
+    const ffmpeg = createFFmpeg({ 
+      log: true,
+      corePath: 'http://localhost:3000/ffmpeg-core.js'
+    });
+    
+    // DOM 元素
+    const videoUrlInput = document.getElementById('videoUrl');
+    const decodeBtn = document.getElementById('decodeBtn');
+    const statusSection = document.getElementById('statusSection');
+    const statusMessage = document.getElementById('statusMessage');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const frameCount = document.getElementById('frameCount');
+    const errorSection = document.getElementById('errorSection');
+    const errorMessage = document.getElementById('errorMessage');
+    const resultSection = document.getElementById('resultSection');
+    const framesContainer = document.getElementById('framesContainer');
+    const totalFramesElement = document.getElementById('totalFrames');
+    const clearBtn = document.getElementById('clearBtn');
+    const frameRateSelect = document.getElementById('frameRate');
+    const imageFormatSelect = document.getElementById('imageFormat');
+    const disableAudioCheckbox = document.getElementById('disableAudio');
+    
+    // 状态变量
+    let isDecoding = false;
+    
+    // 事件监听
+    decodeBtn.addEventListener('click', decodeVideo);
+    clearBtn.addEventListener('click', clearResults);
+    
+    // 检查浏览器是否支持 SharedArrayBuffer
+    function checkBrowserSupport() {
+      if (typeof SharedArrayBuffer === 'undefined') {
+        return false;
+      }
+      return true;
+    }
+    
+    // 解码视频函数
+    async function decodeVideo() {
+      // 检查浏览器支持
+      if (!checkBrowserSupport()) {
+        showError('您的浏览器环境不支持 SharedArrayBuffer，这是解码视频所必需的。');
+        return;
+      }
+      
+      // 验证 URL
+      const videoUrl = videoUrlInput.value.trim();
+      if (!videoUrl) {
+        showError('请输入有效的视频 URL');
+        return;
+      }
+      
+      // 检查是否正在解码
+      if (isDecoding) {
+        showError('正在处理，请等待完成');
+        return;
+      }
+      
+      // 获取用户选择的参数
+      const frameRate = frameRateSelect.value;
+      const imageFormat = imageFormatSelect.value;
+      const disableAudio = disableAudioCheckbox.checked;
+      
+      // 重置状态
+      resetUI();
+      showStatus();
+      isDecoding = true;
+      decodeBtn.disabled = true;
+      decodeBtn.innerHTML = '<span>处理中...</span>';
+      
+      let frameNumber = 1;
+      try {
+        // 加载 FFmpeg
+        updateStatus('正在加载 FFmpeg 库...', 0);
+        if (!ffmpeg.isLoaded()) {
+          await ffmpeg.load(
+            {
+              // corePath: 'https://media.youyan.xyz/youling-lite-sdk/ffmpeg-core.js',
+              workerPath: 'http://localhost:3000/ffmpeg-core.js',
+              wasmPath: 'http://localhost:3000/ffmpeg-core.wasm'
+            }
+          );
+        }
+        
+        // 下载视频文件
+        updateStatus('正在下载视频...', 20);
+        const response = await fetch(videoUrl);
+        if (!response.ok) {
+          throw new Error(`下载失败: ${response.statusText}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        const videoData = new Uint8Array(arrayBuffer);
+        const startTime = performance.now();
+        // 将视频写入 FFmpeg 虚拟文件系统
+        updateStatus('准备解码...', 40);
+        ffmpeg.FS('writeFile', 'input.mp4', videoData);
+        
+        // 构建 FFmpeg 命令参数
+        const ffmpegArgs = [      // 使用CUDA H.264解码器（根据视频编码调整）
+          '-i', 'input.mp4',       // 输入文件
+          '-vf', `fps=${frameRate}`, // 帧率
+          '-y'                     // 覆盖输出文件
+        ];
+        
+        // 对于无音频视频，添加禁用音频处理的参数
+        if (disableAudio) {
+          ffmpegArgs.push('-an');  // 禁用音频输出
+          ffmpegArgs.push('-sn');  // 禁用字幕处理（如果有的话）
+          // ffmpegArgs.push('-vn');  // 先禁用视频，后面再启用，确保只处理需要的流
+          // ffmpegArgs.push('-map', '0:v'); // 只映射视频流
+        }
+        
+        // 添加输出文件参数
+        ffmpegArgs.push(`frame_%d.${imageFormat}`);
+        
+        // 执行 FFmpeg 命令提取帧
+        updateStatus('正在解码视频帧...', 50);
+        await ffmpeg.run(...ffmpegArgs);
+        console.log(">>>ffmpeg.run", performance.now() - startTime);
+        // 读取输出帧
+        updateStatus('正在处理帧数据...', 80);
+        const frames = [];
+        
+        // 收集所有生成的帧文件
+        while (true) {
+          const frameName = `frame_${frameNumber}.${imageFormat}`;
+          try {
+            // 检查文件是否存在
+            ffmpeg.FS('stat', frameName);
+            // 读取文件内容
+            const frameData = ffmpeg.FS('readFile', frameName);
+            frames.push(frameData);
+            
+            // 更新帧计数显示
+            updateFrameCount(frameNumber);
+            
+            frameNumber++;
+          } catch (e) {
+            // 文件不存在，退出循环
+            break;
+          }
+        }
+        
+        // 显示结果
+        updateStatus('完成！正在显示结果...', 100);
+        displayFrames(frames, imageFormat);
+        
+      } catch (error) {
+        console.error('解码错误:', error);
+        
+        // 专门处理 SharedArrayBuffer 错误
+        if (error.message.includes('SharedArrayBuffer') || 
+            error.message.includes('SharedArrayBuffer is not defined')) {
+          showError('浏览器不支持 SharedArrayBuffer，无法运行 FFmpeg。');
+        } else {
+          showError(`处理失败: ${error.message}`);
+        }
+      } finally {
+        // 清理资源
+        try {
+          // 删除虚拟文件系统中的文件
+          ffmpeg.FS('unlink', 'input.mp4');
+          const imageFormat = imageFormatSelect.value;
+          for (let i = 1; i < frameNumber; i++) {
+            const frameName = `frame_${i}.${imageFormat}`;
+            try {
+              ffmpeg.FS('unlink', frameName);
+            } catch (e) { /* 忽略错误 */ }
+          }
+        } catch (e) {
+          console.warn('清理文件时出错:', e);
+        }
+        
+        // 重置状态
+        isDecoding = false;
+        decodeBtn.disabled = false;
+        decodeBtn.innerHTML = '<span>解码视频</span>';
+      }
+    }
+    
+    // 显示帧图像
+    function displayFrames(frames, format) {
+      if (frames.length === 0) {
+        showError('未提取到任何视频帧，请尝试其他视频');
+        return;
+      }
+      
+      // 清空容器
+      framesContainer.innerHTML = '';
+      
+      // 显示每个帧
+      frames.forEach((frameData, index) => {
+        // 创建 blob URL
+        const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
+        const blob = new Blob([frameData.buffer], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        
+        // 创建图像元素
+        const frameElement = document.createElement('div');
+        frameElement.className = 'frame-item';
+        frameElement.innerHTML = `
+          <img src="${url}" alt="视频帧 ${index + 1}">
+          <div class="frame-caption">帧 ${index + 1}</div>
+        `;
+        
+        framesContainer.appendChild(frameElement);
+      });
+      
+      // 更新计数并显示结果
+      totalFramesElement.textContent = frames.length;
+      hideStatus();
+      showResult();
+    }
+    
+    // 清空结果
+    function clearResults() {
+      framesContainer.innerHTML = '';
+      totalFramesElement.textContent = '0';
+      hideResult();
+    }
+    
+    // UI 辅助函数
+    function showStatus() {
+      statusSection.classList.remove('hidden');
+    }
+    
+    function hideStatus() {
+      statusSection.classList.add('hidden');
+    }
+    
+    function showResult() {
+      resultSection.classList.remove('hidden');
+    }
+    
+    function hideResult() {
+      resultSection.classList.add('hidden');
+    }
+    
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorSection.classList.remove('hidden');
+      hideStatus();
+    }
+    
+    function hideError() {
+      errorSection.classList.add('hidden');
+    }
+    
+    function updateStatus(message, progress, time) {
+      statusMessage.textContent = message;
+      progressBar.style.width = `${progress}%`;
+      progressText.textContent = `${progress}%`;
+      if (time) {
+        statusMessage.textContent += ` (${time}ms)`;
+      }
+    }
+    
+    function updateFrameCount(count) {
+      frameCount.textContent = `已提取: ${count} 帧`;
+    }
+    
+    function resetUI() {
+      hideError();
+      hideResult();
+      progressBar.style.width = '0%';
+      progressText.textContent = '0%';
+      frameCount.textContent = '已提取: 0 帧';
+    }
+  </script>
+</body>
+</html>
