@@ -456,14 +456,14 @@
   </footer>
 
   <!-- 加载 FFmpeg.js -->
-  <script src="http://localhost:3000/ffmpeg.min.js"></script>
+  <script src="/ffmpeg.min.js"></script>
   
   <script>
     // 初始化 FFmpeg 实例
     const { createFFmpeg } = FFmpeg;
     const ffmpeg = createFFmpeg({ 
       log: true,
-      corePath: 'http://localhost:3000/ffmpeg-core.js'
+      corePath: '/ffmpeg-core.js'
     });
     
     // DOM 元素
@@ -540,8 +540,8 @@
           await ffmpeg.load(
             {
               // corePath: 'https://media.youyan.xyz/youling-lite-sdk/ffmpeg-core.js',
-              workerPath: 'http://localhost:3000/ffmpeg-core.js',
-              wasmPath: 'http://localhost:3000/ffmpeg-core.wasm'
+              workerPath: '/ffmpeg-core.js',
+              wasmPath: '/ffmpeg-core.wasm'
             }
           );
         }

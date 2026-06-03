@@ -363,12 +363,12 @@
     </div>
   </div>
 
-  <script src="http://localhost:3000/ffmpeg.min.js"></script>
+  <script src="/ffmpeg.min.js"></script>
   <script>
     const { createFFmpeg } = FFmpeg;
     const ffmpeg = createFFmpeg({ 
       log: true,
-      corePath: 'http://localhost:3000/ffmpeg-core.js'
+      corePath: '/ffmpeg-core.js'
     });
 
     // 日志收集器
@@ -438,8 +438,8 @@
         // 加载 FFmpeg
         if (!ffmpeg.isLoaded()) {
           await ffmpeg.load({
-            workerPath: 'http://localhost:3000/ffmpeg-core.js',
-            wasmPath: 'http://localhost:3000/ffmpeg-core.wasm'
+            workerPath: '/ffmpeg-core.js',
+            wasmPath: '/ffmpeg-core.wasm'
           });
         }
 
