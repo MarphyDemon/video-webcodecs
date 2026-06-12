@@ -32,7 +32,7 @@ CONF_FLAGS=(
   $LDFLAGS 
   -sENVIRONMENT=worker
   -sWASM_BIGINT                            # enable big int support
-  -sUSE_SDL=2                              # use emscripten SDL2 lib port
+  -sUSE_SDL=0                              # use emscripten SDL2 lib port
   -sSTACK_SIZE=5MB                         # increase stack size to support libopus
   -sMODULARIZE                             # modularized to use as a library
   ${FFMPEG_MT:+ -sINITIAL_MEMORY=1024MB}   # ALLOW_MEMORY_GROWTH is not recommended when using threads, thus we use a large initial memory

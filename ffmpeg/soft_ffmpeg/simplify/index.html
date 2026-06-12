@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FFmpeg 提取 YUV420P 视频帧</title>
+  
+  <style>
+    /* 基础样式重置 */
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+    
+    body {
+      background-color: #f9fafb;
+      color: #1e293b;
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+    
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 16px;
+    }
+    
+    /* 头部样式 */
+    header {
+      background-color: white;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      padding: 16px 0;
+    }
+    
+    .header-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .logo h1 {
+      font-size: 20px;
+      font-weight: bold;
+      color: #3b82f6;
+    }
+    
+    .header-info {
+      font-size: 14px;
+      color: #64748b;
+    }
+    
+    /* 主内容区 */
+    main {
+      padding: 32px 0;
+    }
+    
+    section {
+      margin-bottom: 40px;
+    }
+    
+    .card {
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      padding: 24px;
+    }
+    
+    h2 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    /* 输入区域 */
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    
+    @media (min-width: 768px) {
+      .input-group {
+        flex-direction: row;
+      }
+    }
+    
+    input[type="text"] {
+      flex: 1;
+      padding: 12px 16px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 16px;
+      transition: all 0.2s;
+    }
+    
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+    
+    button {
+      background-color: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    
+    button:hover {
+      background-color: #2563eb;
+    }
+    
+    .help-text {
+      margin-top: 12px;
+      font-size: 14px;
+      color: #64748b;
+    }
+    
+    /* 性能选项 */
+    .performance-options {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #e2e8f0;
+    }
+    
+    .option-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    
+    .option-group label {
+      font-size: 14px;
+      color: #334155;
+    }
+    
+    .option-group input {
+      width: auto;
+    }
+    
+    select {
+      padding: 8px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    
+    /* 状态和进度 */
+    .progress-container {
+      width: 100%;
+      background-color: #e2e8f0;
+      border-radius: 4px;
+      height: 10px;
+      margin: 8px 0;
+    }
+    
+    .progress-bar {
+      height: 100%;
+      background-color: #3b82f6;
+      border-radius: 4px;
+      width: 0%;
+      transition: width 0.3s;
+    }
+    
+    .progress-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      color: #64748b;
+    }
+    
+    .status-message {
+      margin-bottom: 16px;
+      color: #334155;
+    }
+    
+    /* 结果展示区 */
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    
+    .result-stats {
+      font-size: 14px;
+      color: #64748b;
+    }
+    
+    .result-stats strong {
+      color: #3b82f6;
+    }
+    
+    .clear-btn {
+      background: none;
+      color: #64748b;
+      padding: 4px 8px;
+      font-size: 14px;
+    }
+    
+    .clear-btn:hover {
+      background: none;
+      color: #ef4444;
+    }
+    
+    .frame-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+    }
+    
+    .frame-item {
+      background-color: #f1f5f9;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      transition: box-shadow 0.2s;
+    }
+    
+    .frame-item:hover {
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    
+    .frame-item img {
+      width: 100%;
+      height: auto;
+      object-fit: cover;
+    }
+    
+    .frame-caption {
+      padding: 8px;
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+    }
+    
+    /* 信息提示 */
+    .info-box {
+      background-color: #eff6ff;
+      border-left: 4px solid #3b82f6;
+      padding: 16px;
+      border-radius: 4px;
+    }
+    
+    .info-content {
+      display: flex;
+      gap: 12px;
+    }
+    
+    .info-text {
+      flex: 1;
+      font-size: 14px;
+      color: #1e40af;
+    }
+    
+    /* 错误信息 */
+    .error-box {
+      background-color: #fee2e2;
+      border-left: 4px solid #ef4444;
+      padding: 16px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+    }
+    
+    .error-content {
+      display: flex;
+      gap: 12px;
+    }
+    
+    .error-text {
+      flex: 1;
+      font-size: 14px;
+      color: #b91c1c;
+    }
+    
+    /* 页脚 */
+    footer {
+      background-color: #1e293b;
+      color: white;
+      padding: 24px 0;
+      margin-top: auto;
+    }
+    
+    .footer-content {
+      text-align: center;
+      font-size: 14px;
+    }
+    
+    /* 隐藏/显示元素 */
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- 顶部导航 -->
+  <header>
+    <div class="container header-content">
+      <div class="logo">
+        <h1>视频 YUV 帧提取器</h1>
+      </div>
+      <div class="header-info">
+        输出 YUV420P 原始码流
+      </div>
+    </div>
+  </header>
+
+  <!-- 主内容区 -->
+  <main class="container">
+    <!-- 输入区域 -->
+    <section>
+      <div class="card">
+        <h2>输入视频 URL</h2>
+        <div class="input-group">
+          <input 
+            type="text" 
+            id="videoUrl" 
+            placeholder="例如: https://example.com/video.mp4" 
+            value="https://public-xmov.oss-cn-hangzhou.aliyuncs.com/avatar_sdk_prod/body_ani/M_CN03_show02/look/zhiming02_12367_new/interact02_cut_003.mp4"
+          >
+          <button id="decodeBtn">
+            <span>解码视频</span>
+          </button>
+        </div>
+        <p class="help-text">
+          输出 YUV420P 原始视频流，无需图片编码器
+        </p>
+        
+        <!-- 性能选项 -->
+        <div class="performance-options">
+          <h3>参数选项</h3>
+          <div class="option-group">
+            <label for="frameRate">每秒提取帧数:</label>
+            <select id="frameRate">
+              <option value="1">1 帧/秒</option>
+              <option value="5">5 帧/秒</option>
+              <option value="10">10 帧/秒</option>
+              <option value="24" selected>24 帧/秒</option>
+              <option value="30">30 帧/秒</option>
+            </select>
+          </div>
+          <div class="option-group">
+            <label for="disableAudio">
+              <input type="checkbox" id="disableAudio" checked> 禁用音频 (推荐)
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 状态和进度 -->
+    <section id="statusSection" class="hidden">
+      <div class="card">
+        <h2>处理中</h2>
+        <div id="statusMessage" class="status-message">
+          正在加载 FFmpeg 库...
+        </div>
+        <div class="progress-container">
+          <div id="progressBar" class="progress-bar"></div>
+        </div>
+        <div class="progress-info">
+          <span id="progressText">0%</span>
+          <span id="frameCount">已提取: 0 帧</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 错误信息 -->
+    <section id="errorSection" class="hidden">
+      <div class="error-box">
+        <div class="error-content">
+          <div class="error-text">
+            <p id="errorMessage"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 结果展示区 -->
+    <section id="resultSection" class="hidden">
+      <div class="card">
+        <h2>解码 YUV 帧预览</h2>
+        <div class="result-header">
+          <p class="result-stats">
+            共 <span id="totalFrames" class="strong">0</span> 帧
+          </p>
+          <div>
+            <button id="clearBtn" class="clear-btn">
+              清空结果
+            </button>
+          </div>
+        </div>
+        <div id="framesContainer" class="frame-grid">
+          <!-- 帧预览 -->
+        </div>
+      </div>
+    </section>
+
+    <!-- 信息提示 -->
+    <section>
+      <div class="info-box" id="info">
+        <div class="info-content">
+          <div class="info-text">
+            <p>提示：当前输出 YUV420P 原始码流，不依赖 PNG/JPG 编码器；服务端无需配置 COOP/COEP 头，且不需要支持 SharedArrayBuffer。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 页脚 -->
+  <footer>
+    <div class="container footer-content">
+      <p>FFmpeg.wasm 提取 YUV420P 原始帧 &copy; 2026</p>
+    </div>
+  </footer>
+
+  <!-- 加载 ffmpeg 脚本 -->
+  <script src="/ffmpeg.js"></script>
+  <script src="https://media.youyan.xyz/youling-lite-sdk/vconsole.js"></script>
+  
+  <script>
+
+    // 初始化 FFmpeg 实例
+    const ffmpeg = new FFmpegWASM.FFmpeg();
+    const CORE_JS_PATH = "/ffmpeg-core.js";
+    const CORE_WASM_PATH = "/ffmpeg-core.wasm";
+
+    // DOM 元素
+    const videoUrlInput = document.getElementById('videoUrl');
+    const decodeBtn = document.getElementById('decodeBtn');
+    const statusSection = document.getElementById('statusSection');
+    const statusMessage = document.getElementById('statusMessage');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const frameCount = document.getElementById('frameCount');
+    const errorSection = document.getElementById('errorSection');
+    const errorMessage = document.getElementById('errorMessage');
+    const resultSection = document.getElementById('resultSection');
+    const framesContainer = document.getElementById('framesContainer');
+    const totalFramesElement = document.getElementById('totalFrames');
+    const clearBtn = document.getElementById('clearBtn');
+    const frameRateSelect = document.getElementById('frameRate');
+    const disableAudioCheckbox = document.getElementById('disableAudio');
+    const infoBtn = document.getElementById("info");
+    
+    info.addEventListener("click", function() {
+        // 初始化 VConsole
+        new VConsole();
+    })
+    
+
+    let isDecoding = false;
+    // 缓存所有 stderr 日志
+    let logCache = [];
+
+    
+    let videoWidth = null;
+    let videoHeight = null;
+    let ySize = null;          // Y 总字节
+    let uvSize = null;                        // U / V 各自字节
+    let singleFrameSize = null; // 单帧总字节
+
+    // 监听日志，存入缓存
+    ffmpeg.on('log', (log) => {
+      console.log('FFmpeg Log:', log);
+      if (log.type === 'stderr') {
+        logCache.push(log.message);
+      }
+    });
+
+    /**
+     * 从日志解析 宽 x 高
+     * @returns {width, height}
+     */
+   function getSizeFromLog() {
+      // 精准正则：锁定 Video 流行，提取 宽 x 高
+      const videoLineReg = /Video:.*yuv420p.*?(\d+)\s*x\s*(\d+)/;
+      for (const line of logCache) {
+        const match = line.match(videoLineReg);
+        if (match) {
+          return {
+            width: parseInt(match[1], 10),
+            height: parseInt(match[2], 10)
+          };
+        }
+      }
+      // 解析失败兜底分辨率
+      return { width: 1920, height: 1080 };
+    }
+
+    // 事件绑定
+    decodeBtn.addEventListener('click', decodeVideo);
+    clearBtn.addEventListener('click', clearResults);
+
+    // 加载 FFmpeg Core
+    async function loadFFmpeg() {
+      if (ffmpeg.loaded) return;
+      updateStatus("正在加载 FFmpeg WASM 内核...", 10);
+      await ffmpeg.load({
+        coreURL: CORE_JS_PATH,
+        wasmURL: CORE_WASM_PATH
+      });
+      updateStatus("FFmpeg 内核加载完成", 30);
+    }
+
+    // YUV420P 转 Canvas 预览
+    function yuv420pToCanvas(frameData, width, height) {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      const imgData = ctx.createImageData(width, height);
+      const rgba = imgData.data;
+
+      const w = width;
+      const h = height;
+      const Y = new Uint8Array(frameData.buffer, 0, ySize);
+      const U = new Uint8Array(frameData.buffer, ySize, uvSize);
+      const V = new Uint8Array(frameData.buffer, ySize + uvSize, uvSize);
+
+      let uvIdx = 0;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          // 420P：2x2 像素共用一组 UV
+          uvIdx = Math.floor(y / 2) * Math.floor(w / 2) + Math.floor(x / 2);
+          
+          let yVal = Y[y * w + x];
+          let u = U[uvIdx] - 128;
+          let v = V[uvIdx] - 128;
+
+          // 标准 BT.601 转换公式
+          let r = yVal + 1.402 * v;
+          let g = yVal - 0.34414 * u - 0.71414 * v;
+          let b = yVal + 1.772 * u;
+
+          r = Math.max(0, Math.min(255, r));
+          g = Math.max(0, Math.min(255, g));
+          b = Math.max(0, Math.min(255, b));
+
+          const idx = (y * w + x) * 4;
+          rgba[idx] = r;
+          rgba[idx + 1] = g;
+          rgba[idx + 2] = b;
+          rgba[idx + 3] = 255;
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+      return canvas.toDataURL('image/png');
+    }
+    // 渲染所有 YUV 帧
+    function displayFrames(frames, width, height) {
+      if (frames.length === 0) {
+        showError('未提取到任何 YUV 帧');
+        return;
+      }
+      framesContainer.innerHTML = '';
+
+      frames.forEach((frameData, index) => {
+        const imgUrl = yuv420pToCanvas(frameData, width, height);
+        const frameItem = document.createElement('div');
+        frameItem.className = 'frame-item';
+        frameItem.innerHTML = `
+          <img src="${imgUrl}" alt="YUV帧 ${index + 1}">
+          <div class="frame-caption">YUV420P 帧 ${index + 1}</div>
+        `;
+        framesContainer.appendChild(frameItem);
+      });
+
+      totalFramesElement.textContent = frames.length;
+      hideStatus();
+      showResult();
+    }
+
+    // 解码主逻辑
+    async function decodeVideo() {
+      const videoUrl = videoUrlInput.value.trim();
+      if (!videoUrl) {
+        showError('请输入视频 URL');
+        return;
+      }
+      if (isDecoding) {
+        showError('正在处理，请稍后');
+        return;
+      }
+
+      const frameRate = frameRateSelect.value;
+      const disableAudio = disableAudioCheckbox.checked;
+
+      resetUI();
+      showStatus();
+      isDecoding = true;
+      decodeBtn.disabled = true;
+      decodeBtn.innerHTML = '<span>处理中...</span>';
+
+      let frameNumber = 1;
+
+      try {
+        // 加载内核
+        await loadFFmpeg();
+
+        // 下载视频
+        updateStatus("正在下载视频...", 40);
+        const resp = await fetch(videoUrl);
+        if (!resp.ok) throw new Error(`下载失败: ${resp.statusText}`);
+        const buf = await resp.arrayBuffer();
+        const videoData = new Uint8Array(buf);
+
+        // 写入虚拟文件
+        updateStatus("写入虚拟文件系统...", 50);
+        await ffmpeg.writeFile("input.mp4", videoData);
+
+        // 获取视频宽高
+        const start = Date.now();
+        updateStatus("读取视频信息...", 55, Date.now());
+
+        // ========== 修复：标准 YUV420P + rawvideo 输出 ==========
+        const ffmpegArgs = [
+          '-i', 'input.mp4',
+          '-vf', `fps=${frameRate}`,
+          '-pix_fmt', 'yuv420p',
+          '-f', 'rawvideo',
+          '-y'
+        ];
+        if (disableAudio) {
+          ffmpegArgs.push('-an', '-sn');
+        }
+        ffmpegArgs.push(`out.yuv`);
+        // 固定分辨率，自行修改
+        // 执行解码
+        updateStatus("开始提取 YUV 帧...", 60, Date.now());
+        await ffmpeg.exec(ffmpegArgs);
+        const size = getSizeFromLog();
+
+        videoWidth = size.width;
+        videoHeight = size.height;
+        ySize = videoWidth * videoHeight;          // Y 总字节
+        uvSize = ySize / 4;                        // U / V 各自字节
+        singleFrameSize = ySize + uvSize + uvSize; // 单帧总字节
+        // 修复2：直接读取 out.yuv，不再循环 %d 序号文件
+        updateStatus("读取 YUV 数据...", 80, Date.now());
+        const yuvFullData = await ffmpeg.readFile("out.yuv");
+        const end = Date.now();
+        updateStatus("读取 YUV 数据完成...", 85, end);
+        const frames = [];
+        console.log("yuvFullData.length", yuvFullData.length, singleFrameSize);
+        // 按单帧大小切割完整 YUV 流
+        for (let i = 0; i < yuvFullData.length; i += singleFrameSize) {
+          const frame = yuvFullData.slice(i, i + singleFrameSize);
+          frames.push(frame);
+        }
+        updateFrameCount(frames.length);
+
+        updateStatus("渲染预览...", 100, end-start);
+        displayFrames(frames, 2160, 1920);
+
+      } catch (err) {
+        console.error(err);
+        if (err.message.includes('SharedArrayBuffer')) {
+          showError('缺少 SharedArrayBuffer 支持，请配置服务端 COOP/COEP 响应头');
+        } else {
+          showError(`处理失败: ${err.message}`);
+        }
+      } finally {
+        // 清理虚拟文件
+        try {
+          await ffmpeg.deleteFile("input.mp4");
+          for (let i = 1; i < frameNumber; i++) {
+            const name = `frame_${i}.yuv`;
+            try {
+              await ffmpeg.deleteFile(name);
+            } catch (e) {}
+          }
+        } catch (e) {}
+
+        isDecoding = false;
+        decodeBtn.disabled = false;
+        decodeBtn.innerHTML = '<span>解码视频</span>';
+      }
+    }
+
+    // 清空结果
+    function clearResults() {
+      framesContainer.innerHTML = '';
+      totalFramesElement.textContent = '0';
+      hideResult();
+    }
+
+    // ========== UI 工具函数 ==========
+    function showStatus() { statusSection.classList.remove('hidden'); }
+    function hideStatus() { statusSection.classList.add('hidden'); }
+    function showResult() { resultSection.classList.remove('hidden'); }
+    function hideResult() { resultSection.classList.add('hidden'); }
+    function showError(msg) {
+      errorMessage.textContent = msg;
+      errorSection.classList.remove('hidden');
+      hideStatus();
+    }
+    function hideError() { errorSection.classList.add('hidden'); }
+
+    function updateStatus(text, percent, timestamp) {
+      statusMessage.textContent = text;
+      progressBar.style.width = percent + '%';
+      progressText.textContent = percent + '%';
+      console.log(text, percent, timestamp);
+    }
+    function updateFrameCount(cnt) {
+      frameCount.textContent = `已提取: ${cnt} 帧`;
+    }
+    function resetUI() {
+      hideError();
+      hideResult();
+      progressBar.style.width = '0%';
+      progressText.textContent = '0%';
+      frameCount.textContent = '已提取: 0 帧';
+    }
+  </script>
+</body>
+</html>
